@@ -1,0 +1,68 @@
+{
+  "name": "novapay",
+  "version": "1.0.0",
+  "description": "NovaPay Internet Acquiring and Checkout API client for Node.js",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "example": "npm run build && npm --prefix example install && npm --prefix example start",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsup",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "novapay",
+    "acquiring",
+    "checkout",
+    "payments",
+    "ukraine",
+    "nodejs",
+    "typescript",
+    "sdk",
+    "api-client"
+  ],
+  "author": "NovaPay",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NovaPay/novapay-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NovaPay/novapay-node/issues"
+  },
+  "homepage": "https://github.com/NovaPay/novapay-node#readme",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.5",
+    "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}

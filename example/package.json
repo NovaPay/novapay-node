@@ -1,0 +1,12 @@
+{
+  "name": "novapay-node-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "novapay": "file:.."
+  }
+}
