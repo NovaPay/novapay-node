@@ -1,6 +1,6 @@
 {
   "name": "novapay",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "NovaPay Internet Acquiring and Checkout API client for Node.js",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -18,7 +18,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.uk.md"
   ],
   "scripts": {
     "example": "npm run build && npm --prefix example install && npm --prefix example start",

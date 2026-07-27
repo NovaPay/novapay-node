@@ -2,11 +2,12 @@ import { paths } from '../constants.js';
 import { signedPost } from '../http.js';
 import type {
   AddCheckoutPaymentRequest,
+  CheckoutPaymentResponse,
   CheckoutSessionRequest,
   CompleteHoldRequest,
   CreateCheckoutSessionRequest,
   SessionCreateResponse,
-  SessionPaymentResponse,
+  SessionStatusResponse,
 } from './types.js';
 
 export type CheckoutClientOptions = {
@@ -27,32 +28,56 @@ export class CheckoutClient {
     }) as Promise<SessionCreateResponse>;
   }
 
-  addPayment(body: AddCheckoutPaymentRequest): Promise<SessionPaymentResponse> {
+  addPayment(body: AddCheckoutPaymentRequest): Promise<CheckoutPaymentResponse> {
     return signedPost({
       ...this.opts,
       path: paths.checkout.addPayment,
       body,
-    }) as Promise<SessionPaymentResponse>;
+    }) as Promise<CheckoutPaymentResponse>;
   }
 
-  voidSession(body: CheckoutSessionRequest): Promise<unknown> {
-    return signedPost({ ...this.opts, path: paths.checkout.voidSession, body });
+  /**
+   * Refunds a paid checkout session.
+   *
+   * Responds with a literal `null` body; call {@link getStatus} to see the outcome.
+   */
+  voidSession(body: CheckoutSessionRequest): Promise<null> {
+    return signedPost({
+      ...this.opts,
+      path: paths.checkout.voidSession,
+      body,
+    }) as Promise<null>;
   }
 
   /**
    * Confirms a checkout hold. Uses `POST /v1/complete-hold` on the checkout base URL
    * (same path as acquiring, per NovaPay external API layout).
    * @see https://novapay.readme.io/reference/complete-checkout-hold
+   *
+   * Responds with a literal `null` body; call {@link getStatus} to see the outcome.
    */
-  completeHold(body: CompleteHoldRequest): Promise<unknown> {
-    return signedPost({ ...this.opts, path: paths.checkout.completeHold, body });
+  completeHold(body: CompleteHoldRequest): Promise<null> {
+    return signedPost({
+      ...this.opts,
+      path: paths.checkout.completeHold,
+      body,
+    }) as Promise<null>;
   }
 
-  getStatus(body: CheckoutSessionRequest): Promise<unknown> {
-    return signedPost({ ...this.opts, path: paths.checkout.getStatus, body });
+  getStatus(body: CheckoutSessionRequest): Promise<SessionStatusResponse> {
+    return signedPost({
+      ...this.opts,
+      path: paths.checkout.getStatus,
+      body,
+    }) as Promise<SessionStatusResponse>;
   }
 
-  expireSession(body: CheckoutSessionRequest): Promise<unknown> {
-    return signedPost({ ...this.opts, path: paths.checkout.expireSession, body });
+  /** Expires an unpaid session. Responds with a literal `null` body. */
+  expireSession(body: CheckoutSessionRequest): Promise<null> {
+    return signedPost({
+      ...this.opts,
+      path: paths.checkout.expireSession,
+      body,
+    }) as Promise<null>;
   }
 }

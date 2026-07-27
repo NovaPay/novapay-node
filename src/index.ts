@@ -7,12 +7,18 @@ export type {
   JsonObject,
   MerchantId,
   ProductLine,
+  SessionCreateResponse,
   SessionIdRequest,
   SessionPaymentResponse,
+  SessionStatus,
+  SessionStatusOperation,
+  SessionStatusResponse,
+  TransactionStatus,
 } from './acquiring/types.js';
 export { CheckoutClient, type CheckoutClientOptions } from './checkout/checkout.js';
 export type {
   AddCheckoutPaymentRequest,
+  CheckoutPaymentResponse,
   CheckoutSessionRequest,
   CreateCheckoutSessionRequest,
 } from './checkout/types.js';
@@ -25,7 +31,12 @@ export {
   WEBHOOK_HEADER_X_SIGN,
 } from './constants.js';
 export * from './environment.js';
-export { NovaPayApiError } from './errors.js';
+export {
+  NovaPayApiError,
+  type NovaPayErrorBody,
+  type NovaPayProcessingErrorBody,
+  type NovaPayValidationErrorBody,
+} from './errors.js';
 export { type SignedPostOptions, signedPost } from './http.js';
 export type {
   AcquiringPostbackCardDetails,

@@ -6,9 +6,28 @@ import type {
   SessionCreateResponse,
   SessionIdRequest,
   SessionPaymentResponse,
+  SessionStatusResponse,
 } from '../acquiring/types.js';
 
-export type { CompleteHoldRequest, SessionCreateResponse, SessionPaymentResponse };
+export type {
+  CompleteHoldRequest,
+  SessionCreateResponse,
+  SessionPaymentResponse,
+  SessionStatusResponse,
+};
+
+/**
+ * Response for checkout add payment.
+ * Verified against `POST /v1/checkout/payment` on the QE environment.
+ *
+ * Unlike acquiring's {@link SessionPaymentResponse} this response carries **no `id`** —
+ * the transaction id only shows up later in get-status `operations[].transaction_id`.
+ */
+export type CheckoutPaymentResponse = {
+  /** Checkout page to redirect the customer to. */
+  url: string;
+  session_id: string;
+};
 
 /**
  * @see https://novapay.readme.io/reference/create-checkout-session
