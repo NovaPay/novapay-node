@@ -1,0 +1,49 @@
+<h1>NovaPay demo shop</h1>
+<p class="muted">Тестове середовище (QE). Оплата створюється на бекенді — приватний ключ ніколи не потрапляє в браузер.</p>
+
+<section class="cards">
+  {{#each items}}
+    <form class="card" method="post" action="/buy/{{mode}}">
+      <strong>{{title}}</strong>
+      <span class="muted">{{subtitle}}</span>
+      <span class="price">{{amount}} ₴</span>
+      <button type="submit">Купити</button>
+    </form>
+  {{/each}}
+</section>
+
+<h2>Останні покупки</h2>
+{{#if purchases.length}}
+  <table>
+    <thead>
+      <tr><th>Час</th><th>Товар</th><th>Сума</th><th>Статус</th><th>Спосіб</th><th>Картка</th><th>RRN</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{#each purchases}}
+        <tr>
+          <td>{{createdAt}}</td>
+          <td>{{title}}<br><code class="muted">{{sessionId}}</code></td>
+          <td>{{amount}} ₴</td>
+          <td>
+            <span class="badge">{{status}}</span>
+            {{#if error}}<br><span class="err">{{error}}</span>{{/if}}
+          </td>
+          <td>{{paytype}}</td>
+          <td>{{pan}}</td>
+          <td>{{rrn}}</td>
+          <td class="row-actions">
+            {{#if canComplete}}
+              <form method="post" action="/hold/{{sessionId}}/complete"><button class="ghost" type="submit">Списати</button></form>
+              <form method="post" action="/hold/{{sessionId}}/void"><button class="ghost" type="submit">Скасувати</button></form>
+            {{/if}}
+            <a class="badge" href="{{url}}">Оплатити</a>
+          </td>
+        </tr>
+      {{/each}}
+    </tbody>
+  </table>
+{{else}}
+  <p class="muted">Ще нічого не куплено.</p>
+{{/if}}
+
+<script>setTimeout(() => location.reload(), 10000)</script>

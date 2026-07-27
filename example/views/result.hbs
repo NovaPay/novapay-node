@@ -1,0 +1,17 @@
+<h1>{{#if ok}}Оплата успішна{{else}}Оплата не пройшла{{/if}}</h1>
+
+{{#if purchase}}
+  <p>{{purchase.title}} — <strong>{{purchase.amount}} ₴</strong>, статус: <span class="badge">{{purchase.status}}</span></p>
+  <p class="muted">session: <code>{{purchase.sessionId}}</code></p>
+
+  <h2>Дані з postback</h2>
+  {{#if purchase.callbackJson}}
+    <pre>{{purchase.callbackJson}}</pre>
+  {{else}}
+    <p class="muted">Postback ще не надійшов — оновіть сторінку за кілька секунд.</p>
+  {{/if}}
+{{else}}
+  <p class="muted">Замовлення не знайдено (сервер перезапускався?).</p>
+{{/if}}
+
+<p><a href="/">← На головну</a></p>

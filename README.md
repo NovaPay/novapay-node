@@ -88,7 +88,7 @@ Checkout використовує **той самий хост**, що й acquir
 
 ## Приклад
 
-QE: Express з одним `POST /novapay/webhook` для postback (ngrok), hold, далі **`NOVAPAY_ACTION=complete`** або **`void`** — див. **[example/README.md](example/README.md)**.
+QE: лендінг на Express + hbs — дві кнопки (hold і звичайне списання), сторінки `success`/`fail`, підписаний postback, список покупок із `completeHold`/`voidSession` — див. **[example/README.md](example/README.md)**.
 
 ## Довідник API
 
@@ -186,7 +186,7 @@ Checkout uses the **same host** as acquiring; paths differ (for example `POST /v
 
 ### Example
 
-QE demo: **Express** one `POST /novapay/webhook` endpoint for postbacks (via ngrok), hold flow, then **`NOVAPAY_ACTION=complete`** or **`void`** — see **[example/README.md](example/README.md)**.
+QE demo: **Express + hbs** landing with two buy buttons (hold and direct charge), `success`/`fail` pages, signed postbacks and a purchases list with `completeHold`/`voidSession` — see **[example/README.md](example/README.md)**.
 
 ### API reference
 

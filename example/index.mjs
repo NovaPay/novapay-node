@@ -1,15 +1,32 @@
 /**
- * Acquiring hold: Express POST endpoint for postback → verify x-sign → voidSession or completeHold.
- * Action from env: NOVAPAY_ACTION=complete | void
+ * NovaPay acquiring demo landing (hbs):
+ *  - two buy buttons: hold (use_hold: true) and direct charge
+ *  - success / fail pages + signed postback that fills the "recent purchases" list
+ *  - completeHold / voidSession from the list, with the real status pulled back via getStatus
  *
- * ngrok: PUBLIC_CALLBACK_URL=https://<subdomain>.ngrok-free.app must match this app’s path.
+ * ngrok: PUBLIC_URL=https://<subdomain>.ngrok-free.app must point at this app.
  */
+import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { createClient, NovaPayApiError, NovaPayEnvironment, WEBHOOK_HEADER_X_SIGN } from 'novapay';
 
 export const DEFAULT_MERCHANT_ID = '2';
 export const DEFAULT_CLIENT_PHONE = '+380501112233';
-export const DEFAULT_CALLBACK_URL = 'https://example.com/novapay-example/cb';
+
+const ITEMS = {
+  hold: {
+    title: 'Передзамовлення',
+    subtitle: 'Кошти блокуються (hold), списуються після підтвердження',
+    amount: 10,
+    use_hold: true,
+  },
+  direct: {
+    title: 'Купити зараз',
+    subtitle: 'Звичайна оплата, кошти списуються одразу',
+    amount: 5,
+    use_hold: false,
+  },
+};
 
 const EMBEDDED_MERCHANT_PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCgYSuVeKh3Zl8O
@@ -50,128 +67,175 @@ urGUs2hGFQap4KiyR0TRtaJujM715y1gjVFN7Khkkol/dJaHRqxUaZv3dlL+RMXG
 /wIDAQAB
 -----END PUBLIC KEY-----`;
 
-const ACTION = process.env.NOVAPAY_ACTION?.trim().toLowerCase();
-if (ACTION !== 'complete' && ACTION !== 'void') {
-  console.error('Set NOVAPAY_ACTION to "complete" or "void".');
-  process.exit(1);
-}
-
-const PUBLIC_CALLBACK_URL = process.env.PUBLIC_CALLBACK_URL;
-if (!PUBLIC_CALLBACK_URL || !/^https:\/\//i.test(PUBLIC_CALLBACK_URL)) {
+const PUBLIC_URL = process.env.PUBLIC_URL?.replace(/\/+$/, '');
+if (!PUBLIC_URL || !/^https:\/\//i.test(PUBLIC_URL)) {
   console.error(
-    'Set PUBLIC_CALLBACK_URL to your ngrok HTTPS URL, e.g.\n' +
-      '  export PUBLIC_CALLBACK_URL="https://<subdomain>.ngrok-free.app"\n' +
+    'Set PUBLIC_URL to your ngrok HTTPS URL, e.g.\n' +
+      '  export PUBLIC_URL="https://<subdomain>.ngrok-free.app"\n' +
       'Run: ngrok http 3000',
   );
   process.exit(1);
 }
 
-const knownSessionIds = new Set();
+const client = createClient({
+  privateKeyPem: EMBEDDED_MERCHANT_PRIVATE_KEY_PEM,
+  novapayPublicKeyPem: EMBEDDED_NOVAPAY_PUBLIC_KEY_PEM,
+  environment: NovaPayEnvironment.Test,
+});
 
-async function main() {
-  const client = createClient({
-    privateKeyPem: EMBEDDED_MERCHANT_PRIVATE_KEY_PEM,
-    novapayPublicKeyPem: EMBEDDED_NOVAPAY_PUBLIC_KEY_PEM,
-    environment: NovaPayEnvironment.Test,
-  });
+/** session_id → purchase. ponytail: in-memory, wiped on restart — a demo needs no DB. */
+const purchases = new Map();
 
-  const app = express();
-  app.use(express.json({ limit: '1mb' }));
+const findByOrder = (orderId) => [...purchases.values()].find((p) => p.orderId === orderId);
 
-  app.post('/novapay/webhook', async (req, res) => {
-    try {
-      const xSign = req.get(WEBHOOK_HEADER_X_SIGN);
-      if (!xSign) {
-        res.status(400).send(`missing ${WEBHOOK_HEADER_X_SIGN}`);
-        return;
-      }
-      if (!client.verifyPostback(JSON.stringify(req.body), xSign)) {
-        res.status(401).send('invalid postback signature');
-        return;
-      }
-      if (!knownSessionIds.has(req.body.id)) {
-        res.status(200).send('OK');
-        return;
-      }
+function toView(p) {
+  return {
+    ...p,
+    ...ITEMS[p.mode],
+    createdAt: new Date(p.createdAt).toLocaleTimeString('uk-UA'),
+    canComplete: p.mode === 'hold' && p.status === 'holded',
+    paytype: p.callback?.paytype ?? '—',
+    pan: p.callback?.card_details?.pan ?? '—',
+    rrn: p.callback?.RRN ?? '—',
+    callbackJson: p.callback ? JSON.stringify(p.callback, null, 2) : null,
+  };
+}
 
-      if (ACTION === 'void') {
-        await client.acquiring.voidSession({
-          merchant_id: DEFAULT_MERCHANT_ID,
-          session_id: req.body.id,
-        });
-        console.log('voidSession: OK');
-      } else if (ACTION === 'complete') {
-        await client.acquiring.completeHold({
-          merchant_id: DEFAULT_MERCHANT_ID,
-          session_id: req.body.id,
-          amount: 10,
-        });
-        console.log('completeHold: OK');
-      }
+/** Human-readable NovaPay error: the API puts the reason in `error`. */
+function errorText(err) {
+  return err instanceof NovaPayApiError
+    ? (err.responseJson?.error ?? err.responseBody ?? err.message)
+    : String(err);
+}
 
-      knownSessionIds.delete(req.body.id);
-      res.status(200).send('OK');
-    } catch (err) {
-      console.error(err);
-      try {
-        res.status(500).json({ error: String(err instanceof Error ? err.message : err) });
-      } catch {
-        /* ignore */
-      }
-    }
-  });
+/** Pulls the authoritative status — the local copy is only as fresh as the last postback. */
+async function syncStatus(purchase) {
+  try {
+    const status = await client.acquiring.getStatus({
+      merchant_id: DEFAULT_MERCHANT_ID,
+      session_id: purchase.sessionId,
+    });
+    purchase.status = status.status ?? purchase.status;
+  } catch (err) {
+    console.error('getStatus failed:', errorText(err));
+  }
+}
 
-  app.use((_req, res) => {
-    res.status(404).end();
-  });
+/** Creates session + payment and returns the pay URL. Every click is a fresh session. */
+async function buy(mode) {
+  const orderId = randomUUID();
+  const item = ITEMS[mode];
 
-  const server = await new Promise((resolve, reject) => {
-    const s = app.listen(3000, () => resolve(s));
-    s.on('error', reject);
-  });
-
-  console.log('\n--- Express postback ---');
-  console.log(`POST /novapay/webhook`);
-  console.log(`Local:  http://127.0.0.1:3000/novapay/webhook`);
-  console.log(`Public (callback_url): ${PUBLIC_CALLBACK_URL}/novapay/webhook`);
-  console.log(`NOVAPAY_ACTION: ${ACTION}`);
-
-  console.log('--- Create session (acquiring) ---');
   const session = await client.acquiring.createSession({
     merchant_id: DEFAULT_MERCHANT_ID,
     client_phone: DEFAULT_CLIENT_PHONE,
-    callback_url: `${PUBLIC_CALLBACK_URL}/novapay/webhook`,
+    callback_url: `${PUBLIC_URL}/novapay/webhook`,
+    success_url: `${PUBLIC_URL}/success?order=${orderId}`,
+    fail_url: `${PUBLIC_URL}/fail?order=${orderId}`,
+    metadata: { order_id: orderId },
   });
 
-  console.log('session_id:', session.id);
-
-  console.log('\n--- Add payment (hold, use_hold: true) ---');
   const payment = await client.acquiring.addPayment({
     merchant_id: DEFAULT_MERCHANT_ID,
     session_id: session.id,
-    amount: 10,
-    use_hold: true,
+    amount: item.amount,
+    external_id: orderId,
+    use_hold: item.use_hold,
+    products: [{ description: item.title, count: 1, price: item.amount }],
   });
-  if (!payment.url) {
-    console.error('No pay URL in response:', payment);
-    server.close();
-    process.exit(1);
-  }
+  if (!payment.url) throw new Error(`No pay URL in response: ${JSON.stringify(payment)}`);
 
-  knownSessionIds.add(session.id);
-
-  console.log('Pay URL:', payment.url);
-  console.log('\nWaiting for signed postback…\n');
+  purchases.set(session.id, {
+    orderId,
+    sessionId: session.id,
+    mode,
+    amount: item.amount,
+    status: 'created',
+    url: payment.url,
+    createdAt: Date.now(),
+    callback: null,
+    error: null,
+  });
+  return payment.url;
 }
 
-try {
-  await main();
-} catch (err) {
-  if (err instanceof NovaPayApiError) {
-    console.error('NovaPay API error:', err.message, 'status=', err.status);
-    console.error('Body:', err.responseBody);
-    process.exit(1);
+const app = express();
+app.set('view engine', 'hbs');
+app.set('views', new URL('views', import.meta.url).pathname);
+app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => (req.rawBody = buf) }));
+
+app.get('/', (_req, res) => {
+  res.render('index', {
+    items: Object.entries(ITEMS).map(([mode, item]) => ({ mode, ...item })),
+    purchases: [...purchases.values()].sort((a, b) => b.createdAt - a.createdAt).map(toView),
+  });
+});
+
+app.post('/buy/:mode', async (req, res, next) => {
+  if (!ITEMS[req.params.mode]) return res.status(404).send('unknown item');
+  try {
+    res.redirect(await buy(req.params.mode));
+  } catch (err) {
+    next(err);
   }
+});
+
+app.post('/hold/:sessionId/:action', async (req, res) => {
+  const purchase = purchases.get(req.params.sessionId);
+  if (!purchase) return res.status(404).send('unknown session');
+  const body = { merchant_id: DEFAULT_MERCHANT_ID, session_id: purchase.sessionId };
+  try {
+    if (req.params.action === 'complete') {
+      await client.acquiring.completeHold({ ...body, amount: purchase.amount });
+    } else if (req.params.action === 'void') {
+      await client.acquiring.voidSession(body);
+    } else {
+      return res.status(404).send('unknown action');
+    }
+    purchase.error = null;
+  } catch (err) {
+    // The hold may already be completed, voided or expired — show that in the row, don't 500.
+    purchase.error = errorText(err);
+    console.error(`${req.params.action} failed:`, purchase.error);
+  }
+  await syncStatus(purchase);
+  res.redirect('/');
+});
+
+app.get(['/success', '/fail'], (req, res) => {
+  const purchase = findByOrder(req.query.order);
+  res.render('result', {
+    ok: req.path === '/success',
+    purchase: purchase && toView(purchase),
+  });
+});
+
+app.post('/novapay/webhook', (req, res) => {
+  const xSign = req.get(WEBHOOK_HEADER_X_SIGN);
+  if (!xSign) return res.status(400).send(`missing ${WEBHOOK_HEADER_X_SIGN}`);
+  if (!client.verifyPostback(req.rawBody, xSign)) {
+    return res.status(401).send('invalid postback signature');
+  }
+
+  const purchase = purchases.get(req.body.id);
+  if (purchase) {
+    purchase.status = req.body.status ?? 'unknown';
+    purchase.callback = req.body;
+    console.log(`postback: ${req.body.id} → ${purchase.status}`);
+  }
+  res.status(200).send('OK');
+});
+
+app.use((err, _req, res, _next) => {
   console.error(err);
-  process.exit(1);
-}
+  res
+    .status(500)
+    .type('text')
+    .send(`NovaPay error: ${errorText(err)}`);
+});
+
+app.listen(3000, () => {
+  console.log(`Landing:  http://127.0.0.1:3000`);
+  console.log(`Public:   ${PUBLIC_URL}`);
+  console.log(`Postback: ${PUBLIC_URL}/novapay/webhook`);
+});
