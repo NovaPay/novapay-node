@@ -1,6 +1,6 @@
 {
   "name": "novapay",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "NovaPay Internet Acquiring and Checkout API client for Node.js",
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
