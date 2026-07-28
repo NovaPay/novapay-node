@@ -2,17 +2,20 @@
 
 [![CI](https://github.com/NovaPay/novapay-node/actions/workflows/ci.yml/badge.svg)](https://github.com/NovaPay/novapay-node/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/novapay.svg)](https://www.npmjs.com/package/novapay)
+[![install size](https://packagephobia.com/badge?p=novapay)](https://packagephobia.com/result?p=novapay)
 [![license](https://img.shields.io/npm/l/novapay.svg)](LICENSE)
 
 TypeScript client for the **NovaPay external API** — [Internet Acquiring](https://novapay.readme.io/reference/acquiring-requests) and [Checkout](https://novapay.readme.io/reference/checkout-requests). Requests are signed for you, postbacks are verified for you, every payload is typed.
 
 📖 [Документація українською](README.uk.md)
 
+**Contents** · [Requirements](#requirements) · [Install](#install) · [Quickstart](#quickstart) · [Postbacks](#postbacks) · [API](#api) · [Configuration](#configuration) · [Errors](#errors) · [Example app](#example-app) · [Development](#development)
+
 ## Requirements
 
-- **Node.js 18+** — uses the global `fetch` and `node:crypto`
+- **Node.js 20.3+** — uses the global `fetch`, `AbortSignal.any` and `node:crypto`
 - Ships **ESM and CommonJS** builds, no separate types package needed
-- No runtime dependencies
+- No runtime dependencies, and the published types need no `@types/node`
 
 ## Install
 
@@ -47,6 +50,8 @@ console.log('Redirect the customer to:', payment.url);
 ```
 
 `createSession` returns `{ id }` — that `id` is the session id you pass everywhere else.
+
+Both `createSession` methods stamp `metadata.source_name` (`novapay_node`), `metadata.version` (this package's version) and `metadata.runtime` (`node/<process.versions.node>`) so NovaPay can attribute traffic. Your own `metadata` keys are merged on top and win, so you can override any of them.
 
 Pass `use_hold: true` to `addPayment` to authorize now and capture later with `completeHold`.
 
@@ -93,7 +98,9 @@ app.post('/novapay/postback', (req, res) => {
 });
 ```
 
-`client.verifyPostback` throws if you did not pass `novapayPublicKeyPem` to `createClient`. To verify without a client:
+`rawBody` takes `string | Uint8Array`, so a `Buffer` from any body parser fits as-is.
+
+`client.verifyPostback` throws `NovaPayConfigError` if you did not pass `novapayPublicKeyPem` to `createClient`. To verify without a client:
 
 ```ts
 import { verifyPostbackSignature } from 'novapay';
@@ -105,7 +112,7 @@ Payload types: `AcquiringPostbackV3` and `CheckoutPostbackV3` (v3, current as of
 
 ## API
 
-Every method takes one object and returns a promise.
+Every method takes a body object, an optional [`RequestOptions`](#per-call-options), and returns a promise.
 
 | Method | Path | Returns |
 |---|---|---|
@@ -175,10 +182,29 @@ createClient({
   environment,            // NovaPayEnvironment.Test (default) | .Production
   acquiringBaseUrl,       // override the resolved host (staging, mocks)
   checkoutBaseUrl,        // override the resolved host (staging, mocks)
-  timeoutMs,              // per-request timeout, default 30_000
+  timeoutMs,              // default per-request timeout, 30_000
   fetchFn,                // custom fetch — proxies, instrumentation, tests
 });
 ```
+
+Both PEM keys are parsed here, so a malformed key throws from `createClient` at startup instead of
+failing on your first real payment.
+
+### Per-call options
+
+Every method accepts a second `RequestOptions` argument:
+
+```ts
+await client.acquiring.getStatus(
+  { merchant_id, session_id },
+  { signal: req.signal, timeoutMs: 5_000 },
+);
+```
+
+| Option | Description |
+|---|---|
+| `signal` | Caller cancellation, combined with the timeout — whichever fires first aborts. Pass your server's request signal to drop the outgoing call when the customer closes the tab. |
+| `timeoutMs` | Overrides the client's `timeoutMs` for this call only. |
 
 Acquiring and Checkout share one host per environment:
 
@@ -193,45 +219,75 @@ Acquiring and Checkout share one host per environment:
 
 ## Errors
 
-Any non-2xx response throws `NovaPayApiError`:
+Everything the SDK throws extends `NovaPayError`, so a single `instanceof` catches all of it. Below that, the tree splits by what you can actually do about the error:
+
+```
+NovaPayError
+├── NovaPayConfigError          your call is wrong — bad PEM, missing option. Fix the code.
+└── NovaPayApiError             NovaPay answered non-2xx.
+    ├── NovaPayProcessingError    a documented business rejection.
+    └── NovaPayValidationError    the body failed schema validation.
+```
 
 ```ts
-import { NovaPayApiError } from 'novapay';
+import {
+  NovaPayApiError,
+  NovaPayProcessingError,
+  NovaPayValidationError,
+} from 'novapay';
 
 try {
   await client.acquiring.addPayment({ /* … */ });
 } catch (err) {
-  if (err instanceof NovaPayApiError) {
-    console.error(err.status, err.responseJson ?? err.responseBody);
+  if (err instanceof NovaPayValidationError) {
+    // You sent something wrong. Never retry this.
+    console.error(err.paths, err.uuid);       // ['client_phone'], 'e7638147-…'
+  } else if (err instanceof NovaPayProcessingError) {
+    // NovaPay refused the operation. Branch on the code.
+    if (err.code === 'SessionAlreadyRefundedError') return;
+    console.error(err.code, err.error, err.uuid);
+  } else if (err instanceof NovaPayApiError) {
+    // 5xx, gateway HTML, anything undocumented.
+    console.error(err.status, err.responseBody);
   }
   throw err;
 }
 ```
 
+Check the subclasses **before** `NovaPayApiError` — they extend it, so a plain `instanceof NovaPayApiError` matches all three.
+
+`NovaPayApiError` — every non-2xx response:
+
 | Property | Description |
 |---|---|
 | `status` | HTTP status code |
-| `responseJson` | Parsed body, or `undefined` if it wasn't JSON |
+| `responseJson` | Parsed body, or `null` if it wasn't JSON |
 | `responseBody` | Raw response text |
 
-4xx bodies come in two shapes, discriminated by `type`:
+`NovaPayProcessingError` — a well-formed request rejected for a business reason:
 
-```ts
-import type { NovaPayErrorBody } from 'novapay';
+| Property | Description |
+|---|---|
+| `code` | `'SessionNotFoundError'` \| `'SessionAlreadyRefundedError'` \| `'NotFoundError'` \| … — branch on this |
+| `error` | Human-readable message, e.g. `'session already refunded'`. Not a contract |
+| `description` | Extra detail, often empty |
+| `uuid` | Server-side correlation id — quote it in support tickets |
 
-const body = err.responseJson as NovaPayErrorBody;
+`NovaPayValidationError` — the request body failed validation:
 
-if (body.type === 'processing') {
-  body.code;      // 'SessionNotFoundError' | 'SessionAlreadyRefundedError' | 'NotFoundError' | …
-  body.error;     // 'session already refunded'
-} else {
-  body.errors;    // [{ path: 'client_phone', code: 'invalid_type', message: '…' }]
-}
-```
+| Property | Description |
+|---|---|
+| `errors` | `[{ path: 'client_phone', code: 'invalid_type', message: '…' }]` |
+| `paths` | Just the rejected field names, e.g. `['client_phone']` |
+| `uuid` | Server-side correlation id |
 
-Branch on `code`, never on the `error` message. Both shapes carry a `uuid` — quote it in support tickets. Cast only after confirming the body is an object: 5xx and gateway responses are not guaranteed to follow either shape.
+A response only gets a subclass when the fields that subclass promises are actually present. A truncated or mislabelled 4xx stays a plain `NovaPayApiError` rather than handing you a `code` of `undefined`, so `err.code` is never a lie.
 
-Timeouts abort the request and reject with an `AbortError`.
+`uuid` is deliberately kept out of `err.message`: log aggregators group by message, and a per-request id in there would give you one group per error instead of one per kind.
+
+`NovaPayConfigError` is thrown for a malformed PEM or a missing `novapayPublicKeyPem` — at `createClient` time, before any request. It means a broken deployment, not a failed payment.
+
+Cancellation rejects rather than resolves: a `timeoutMs` expiry throws a `TimeoutError`, and a caller-supplied `signal` throws that signal's abort reason (an `AbortError` by default). Both are `DOMException`s, not `NovaPayApiError` — no request reached NovaPay.
 
 **There are no automatic retries.** `addPayment` is not idempotent — a blind retry can charge the customer twice. On a timeout or 5xx, call `getStatus` to find out what actually happened before retrying.
 

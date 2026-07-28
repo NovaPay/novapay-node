@@ -1,9 +1,8 @@
 {
   "name": "novapay",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "NovaPay Internet Acquiring and Checkout API client for Node.js",
   "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -15,7 +14,8 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -28,6 +28,7 @@
     "build": "tsup",
     "test:watch": "vitest",
     "lint": "biome check .",
+    "lint:package": "publint && attw --pack .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
@@ -43,7 +44,11 @@
     "sdk",
     "api-client"
   ],
-  "author": "NovaPay",
+  "author": {
+    "name": "NovaPay",
+    "email": "acquiring@novapay.ua",
+    "url": "https://novapay.ua"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -55,13 +60,19 @@
   "homepage": "https://github.com/NovaPay/novapay-node#readme",
   "type": "module",
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.3.0"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
     "@biomejs/biome": "2.5.5",
     "@types/node": "^25.6.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "publint": "^0.3.22",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"

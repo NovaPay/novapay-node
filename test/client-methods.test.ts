@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { createClient } from '../src/client.js';
-import { paths } from '../src/constants.js';
+import { paths, SDK_RUNTIME, SDK_SOURCE_NAME, SDK_VERSION } from '../src/constants.js';
 
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -41,5 +41,36 @@ describe('checkout void/completeHold/expire', () => {
     expect(calls[0]).toContain(paths.checkout.voidSession);
     expect(calls[1]).toContain(paths.checkout.completeHold);
     expect(calls[2]).toContain(paths.checkout.expireSession);
+  });
+});
+
+describe('createSession SDK metadata', () => {
+  it('stamps source_name/version and lets merchant keys win', async () => {
+    const sent: unknown[] = [];
+    const fetchFn = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return new Response('{}', { status: 200 });
+    });
+    const client = createClient({ privateKeyPem: privateKey, fetchFn: fetchFn as typeof fetch });
+
+    await client.acquiring.createSession({ merchant_id: '2', client_phone: '+380501112233' });
+    await client.checkout.createSession({ merchant_id: '2', callback_url: 'https://x/cb' });
+    await client.acquiring.createSession({
+      merchant_id: '2',
+      client_phone: '+380501112233',
+      metadata: { order_id: '42', source_name: 'my_shop' },
+    });
+
+    const stamp = { source_name: SDK_SOURCE_NAME, version: SDK_VERSION, runtime: SDK_RUNTIME };
+    expect(sent[0]).toMatchObject({ metadata: stamp });
+    expect(sent[1]).toMatchObject({ metadata: stamp });
+    expect(sent[2]).toMatchObject({
+      metadata: {
+        source_name: 'my_shop',
+        version: SDK_VERSION,
+        runtime: SDK_RUNTIME,
+        order_id: '42',
+      },
+    });
   });
 });

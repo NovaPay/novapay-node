@@ -8,7 +8,14 @@
  */
 import { randomUUID } from 'node:crypto';
 import express from 'express';
-import { createClient, NovaPayApiError, NovaPayEnvironment, WEBHOOK_HEADER_X_SIGN } from 'novapay';
+import {
+  createClient,
+  NovaPayApiError,
+  NovaPayEnvironment,
+  NovaPayProcessingError,
+  NovaPayValidationError,
+  WEBHOOK_HEADER_X_SIGN,
+} from 'novapay';
 
 export const DEFAULT_MERCHANT_ID = '2';
 export const DEFAULT_CLIENT_PHONE = '+380501112233';
@@ -28,44 +35,22 @@ const ITEMS = {
   },
 };
 
-const EMBEDDED_MERCHANT_PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCgYSuVeKh3Zl8O
-sEcOR0MuUcKW6S2+FNOV9R8eJItSoe3U96zOqwNw8DTa2wOKR5W0WPeRQkg2Y2zk
-5zFGLSHG1y9+uTDOmO/1kMBzh99P7bvjlE5ofV5+iXH8/Xq9Ye/N+paiAQYN8ym6
-N3h9mYHuU9IlksJaCG1RCWjNTxLwoCl0/CJZVawKREAM2XVxWH28HUaeMRTx2Rmk
-iQhFGKQJJlyotk9WzkjgqmMJcZHwM8qBRF6ZeBD8hKV3wXWLFcDjKgIMK51IXKbO
-335ZdiZdEBbAxg4d9XVe0SR9Z5QgP6+Jw3l5LtCJbZqb9Y2viosJDZGJdTgv4inG
-bMm3+HTPAgMBAAECggEAA3rrI259qk5TFnBkVpGRijg92iS3FK9v8z80FiF6hly/
-D0S2P/bDN6XRjttkntx7+qzvyOzL/NMWysZyAO0/b1P6LUa7P+2bErJ9p8fmTc8f
-izdH8P5lkVs+4MyjFLrZcNRy/YPKDdglMnrpMm6lJfbLrF2FuiE+GGFAmLPsrrOF
-/RaRTm2QX+e+tjZhtIBHDMHoPSfcpB2iGMB/Spm/iy3RSWTQYp7ySEu9oaYrTbcG
-TxQxOQcwKc7FqbggAyUHEniLsY15BGkJKxGoB4HelnxR+FernJdkNcywdZPzgVFe
-lmpltxlP6le4AzSQPVmj+IBrv/h4McWZEUqzFvGWAQKBgQDQ5SW1YvtcEFgT2HCE
-2hAxesnLHBEmdwvzkGwmmdwlwIMTxmAELlO8mCQooMbcJAY2O4Kd1tClKKo+SlYl
-Aisoc42yGgLsFvauKRl3Fdc+oCadXH3FLhh0PDMJ3XLsZAJ0LM3W1zFeBRJS1Epb
-6qqlqrqNqgK14ndnM+Yz5rXn/wKBgQDEi1/ywVtgBNQxp7fSVotX+I44amMfqLq/
-yGvo/U37R2sp788yRQ/x0fHDGIXQ4krXymOrEPBQM5mb3VdD1RjfbieSETUwxO+k
-Cyx7BopTARcNTo4Nt+vE/KyQeYywGuq9Q/YpkGAlHCRNRKR5mWrsxr8FKGMlel99
-j/vinBDzMQKBgF3pVp2IJUbLVj19xYAEZNlJwWSddpxbUrUqDWUBMLaMKKGAQnQ+
-u4iCwWa+eQhI7b393QfGpkBJ2tdsJfQ3WF20LVSPWxb2b+n2MiuWVxEhgJqoFSbL
-RVUkJzHdK6hYgb3m0pcuYVRKZWV1aQSPqC4YZgwADX3llRaBf5F/u/HTAoGASM5s
-Y4uW4rHHPQGpCYS/p33OiT13rKGfVC3VM4Cp43xoSSepdDC7IFQqH6A06dT57oft
-ddAXhU4oB+HtUpZc2V9/zw8Kyh8ZuoXdG1Gn6emMdYR1AMXx043aCsbMA+xkqmnD
-hVATHYwYMntMBjN7tWxGFI4KdDapquSsZRx09vECgYEAh0fPQPlT7Bbsd50/MDpG
-HXwt8v3LFZtxAPLWZdOP7Wmb8DJ5L/yazlVnT1u5y+JfcYGZIEZ/SKLM6I+1xhTN
-f8y23MXWUCw00jhLK2clpbjVfWKey2pEcm6aGG3/CMEaOEqspsDS9bE8GdQPfNfw
-6VicGagZw45jEQ416jB5d8w=
------END PRIVATE KEY-----`;
+/**
+ * QE demo keys. Export them before starting — never hardcode a merchant key in application code.
+ * PEM is multi-line: quote the value in .env keeping real newlines, or base64-encode and decode here.
+ */
+const MERCHANT_PRIVATE_KEY_PEM = process.env.NOVAPAY_PRIVATE_KEY_PEM;
+const NOVAPAY_PUBLIC_KEY_PEM = process.env.NOVAPAY_PUBLIC_KEY_PEM;
 
-const EMBEDDED_NOVAPAY_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw1FeLVQlCYMnxVMPwhHA
-AYik6KGfYz0GJW0SP4dBs6XQ2Ap2kP0X3K5WtJNnPehiWf7jJz9XH2Xh/17t37kZ
-KXGEdWYtPUAWQItLGSIwmPMau+YBFFvLD8OReFhFXc6sjReSPJSFV8KDtOP7By9u
-+KxYqZTVqPxCeYXHOzT7vtDJBJDLbe0pJ3B3wRihMEuHP54X4zqEAi/vbqArhHDD
-O07FZpQ3PA/Fkgj8jMTUxU3LxmIIkNIuLz+Ze/PxL88qvRkRoHd73agYSs5bVdCg
-urGUs2hGFQap4KiyR0TRtaJujM715y1gjVFN7Khkkol/dJaHRqxUaZv3dlL+RMXG
-/wIDAQAB
------END PUBLIC KEY-----`;
+if (!MERCHANT_PRIVATE_KEY_PEM || !NOVAPAY_PUBLIC_KEY_PEM) {
+  console.error(
+    'Set both keys before running the example:\n' +
+      '  export NOVAPAY_PRIVATE_KEY_PEM="$(cat merchant-private.pem)"\n' +
+      '  export NOVAPAY_PUBLIC_KEY_PEM="$(cat novapay-public.pem)"\n' +
+      'QE keys come from NovaPay support (acquiring@novapay.ua).',
+  );
+  process.exit(1);
+}
 
 const PUBLIC_URL = process.env.PUBLIC_URL?.replace(/\/+$/, '');
 if (!PUBLIC_URL || !/^https:\/\//i.test(PUBLIC_URL)) {
@@ -78,8 +63,8 @@ if (!PUBLIC_URL || !/^https:\/\//i.test(PUBLIC_URL)) {
 }
 
 const client = createClient({
-  privateKeyPem: EMBEDDED_MERCHANT_PRIVATE_KEY_PEM,
-  novapayPublicKeyPem: EMBEDDED_NOVAPAY_PUBLIC_KEY_PEM,
+  privateKeyPem: MERCHANT_PRIVATE_KEY_PEM,
+  novapayPublicKeyPem: NOVAPAY_PUBLIC_KEY_PEM,
   environment: NovaPayEnvironment.Test,
 });
 
@@ -101,11 +86,14 @@ function toView(p) {
   };
 }
 
-/** Human-readable NovaPay error: the API puts the reason in `error`. */
+/** Human-readable NovaPay error — each class already carries the reason in a typed field. */
 function errorText(err) {
-  return err instanceof NovaPayApiError
-    ? (err.responseJson?.error ?? err.responseBody ?? err.message)
-    : String(err);
+  if (err instanceof NovaPayValidationError) {
+    return `${err.paths.join(', ')}: ${err.errors[0]?.message ?? 'invalid'}`;
+  }
+  if (err instanceof NovaPayProcessingError) return err.error || err.code;
+  if (err instanceof NovaPayApiError) return err.responseBody || err.message;
+  return String(err);
 }
 
 /** Pulls the authoritative status — the local copy is only as fresh as the last postback. */

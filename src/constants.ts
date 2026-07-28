@@ -1,3 +1,30 @@
+import pkg from '../package.json' with { type: 'json' };
+
+/** Value NovaPay sees in `metadata.source_name` for sessions created by this SDK. */
+export const SDK_SOURCE_NAME = 'novapay_node';
+
+/** This package's version, reported in `metadata.version`. Inlined at build time. */
+export const SDK_VERSION: string = pkg.version;
+
+/** Host runtime, reported in `metadata.runtime` — tells support what the merchant runs on. */
+export const SDK_RUNTIME = `node/${process.versions.node}`;
+
+/**
+ * Stamps SDK identification onto a create-session body.
+ * Merchant-supplied keys win, so a caller can override any of them.
+ */
+export function withSdkMetadata<T extends { metadata?: Record<string, unknown> }>(body: T): T {
+  return {
+    ...body,
+    metadata: {
+      source_name: SDK_SOURCE_NAME,
+      version: SDK_VERSION,
+      runtime: SDK_RUNTIME,
+      ...body.metadata,
+    },
+  };
+}
+
 /** Test (QE) environment base URL — no trailing slash. */
 export const TEST_BASE_URL = 'https://api-qecom.novapay.ua';
 

@@ -2,17 +2,20 @@
 
 [![CI](https://github.com/NovaPay/novapay-node/actions/workflows/ci.yml/badge.svg)](https://github.com/NovaPay/novapay-node/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/novapay.svg)](https://www.npmjs.com/package/novapay)
+[![install size](https://packagephobia.com/badge?p=novapay)](https://packagephobia.com/result?p=novapay)
 [![license](https://img.shields.io/npm/l/novapay.svg)](LICENSE)
 
 TypeScript-клієнт для **зовнішнього API NovaPay** — [Internet Acquiring](https://novapay.readme.io/reference/acquiring-requests) і [Checkout](https://novapay.readme.io/reference/checkout-requests). Запити підписуються автоматично, postback-и перевіряються автоматично, усі payload-и типізовані.
 
 📖 [Documentation in English](README.md)
 
+**Зміст** · [Вимоги](#вимоги) · [Встановлення](#встановлення) · [Швидкий старт](#швидкий-старт) · [Postback-и](#postback-и) · [API](#api) · [Конфігурація](#конфігурація) · [Помилки](#помилки) · [Приклад застосунку](#приклад-застосунку) · [Розробка](#розробка)
+
 ## Вимоги
 
-- **Node.js 18+** — використовує глобальний `fetch` і `node:crypto`
+- **Node.js 20.3+** — використовує глобальний `fetch`, `AbortSignal.any` і `node:crypto`
 - Збірки **ESM і CommonJS**, типи вбудовані
-- Без runtime-залежностей
+- Без runtime-залежностей, а опублікованим типам не потрібен `@types/node`
 
 ## Встановлення
 
@@ -47,6 +50,8 @@ console.log('Редірект клієнта на:', payment.url);
 ```
 
 `createSession` повертає `{ id }` — це і є ідентифікатор сесії для всіх наступних викликів.
+
+Обидва `createSession` автоматично додають `metadata.source_name` (`novapay_node`), `metadata.version` (версія цього пакета) та `metadata.runtime` (`node/<process.versions.node>`), щоб NovaPay бачив джерело трафіку. Ваші власні ключі `metadata` мають пріоритет — будь-який із цих трьох можна перевизначити.
 
 Передайте `use_hold: true` у `addPayment`, щоб заблокувати кошти зараз і списати пізніше через `completeHold`.
 
@@ -93,7 +98,9 @@ app.post('/novapay/postback', (req, res) => {
 });
 ```
 
-`client.verifyPostback` кидає помилку, якщо в `createClient` не передали `novapayPublicKeyPem`. Перевірка без клієнта:
+`rawBody` приймає `string | Uint8Array`, тому `Buffer` з будь-якого body-парсера підходить як є.
+
+`client.verifyPostback` кидає `NovaPayConfigError`, якщо в `createClient` не передали `novapayPublicKeyPem`. Перевірка без клієнта:
 
 ```ts
 import { verifyPostbackSignature } from 'novapay';
@@ -105,7 +112,7 @@ const ok = verifyPostbackSignature(rawBody, xSign, process.env.NOVAPAY_PUBLIC_KE
 
 ## API
 
-Кожен метод приймає один об'єкт і повертає проміс.
+Кожен метод приймає тіло запиту, необов'язкові [`RequestOptions`](#опції-на-один-виклик) і повертає проміс.
 
 | Метод | Шлях | Повертає |
 |---|---|---|
@@ -175,10 +182,29 @@ createClient({
   environment,            // NovaPayEnvironment.Test (за замовчуванням) | .Production
   acquiringBaseUrl,       // перевизначає хост (staging, моки)
   checkoutBaseUrl,        // перевизначає хост (staging, моки)
-  timeoutMs,              // таймаут на запит, за замовчуванням 30_000
+  timeoutMs,              // таймаут на запит за замовчуванням, 30_000
   fetchFn,                // власний fetch — проксі, інструментація, тести
 });
 ```
+
+Обидва PEM-ключі парсяться тут, тому невалідний ключ кине помилку з `createClient` на старті, а не
+під час першого реального платежу.
+
+### Опції на один виклик
+
+Кожен метод приймає другим аргументом `RequestOptions`:
+
+```ts
+await client.acquiring.getStatus(
+  { merchant_id, session_id },
+  { signal: req.signal, timeoutMs: 5_000 },
+);
+```
+
+| Опція | Опис |
+|---|---|
+| `signal` | Скасування з боку викликача, комбінується з таймаутом — перериває той, що спрацював першим. Передайте сигнал запиту вашого сервера, щоб обривати вихідний виклик, коли клієнт закрив вкладку. |
+| `timeoutMs` | Перевизначає `timeoutMs` клієнта лише для цього виклику. |
 
 Acquiring і Checkout використовують спільний хост для кожного середовища:
 
@@ -193,45 +219,75 @@ Acquiring і Checkout використовують спільний хост д�
 
 ## Помилки
 
-Будь-яка відповідь не-2xx кидає `NovaPayApiError`:
+Усе, що кидає SDK, наслідує `NovaPayError`, тому один `instanceof` ловить будь-яку помилку. Нижче дерево розгалужується за тим, що з помилкою реально можна зробити:
+
+```
+NovaPayError
+├── NovaPayConfigError          виклик неправильний — битий PEM, забута опція. Правити код.
+└── NovaPayApiError             NovaPay відповів не-2xx.
+    ├── NovaPayProcessingError    задокументована бізнесова відмова.
+    └── NovaPayValidationError    тіло не пройшло валідацію схеми.
+```
 
 ```ts
-import { NovaPayApiError } from 'novapay';
+import {
+  NovaPayApiError,
+  NovaPayProcessingError,
+  NovaPayValidationError,
+} from 'novapay';
 
 try {
   await client.acquiring.addPayment({ /* … */ });
 } catch (err) {
-  if (err instanceof NovaPayApiError) {
-    console.error(err.status, err.responseJson ?? err.responseBody);
+  if (err instanceof NovaPayValidationError) {
+    // Ви передали щось не те. Повторювати не можна.
+    console.error(err.paths, err.uuid);       // ['client_phone'], 'e7638147-…'
+  } else if (err instanceof NovaPayProcessingError) {
+    // NovaPay відмовив в операції. Розгалужуйтесь по коду.
+    if (err.code === 'SessionAlreadyRefundedError') return;
+    console.error(err.code, err.error, err.uuid);
+  } else if (err instanceof NovaPayApiError) {
+    // 5xx, HTML від шлюзу, будь-що незадокументоване.
+    console.error(err.status, err.responseBody);
   }
   throw err;
 }
 ```
 
+Перевіряйте підкласи **перед** `NovaPayApiError` — вони його наслідують, тому сам `instanceof NovaPayApiError` матчить усі три.
+
+`NovaPayApiError` — будь-яка відповідь не-2xx:
+
 | Властивість | Опис |
 |---|---|
 | `status` | HTTP-код відповіді |
-| `responseJson` | Розпарсене тіло, або `undefined` якщо це був не JSON |
+| `responseJson` | Розпарсене тіло, або `null` якщо це був не JSON |
 | `responseBody` | Сирий текст відповіді |
 
-Тіла 4xx бувають двох форм, розрізняються по `type`:
+`NovaPayProcessingError` — коректний запит, відхилений з бізнесової причини:
 
-```ts
-import type { NovaPayErrorBody } from 'novapay';
+| Властивість | Опис |
+|---|---|
+| `code` | `'SessionNotFoundError'` \| `'SessionAlreadyRefundedError'` \| `'NotFoundError'` \| … — розгалужуйтесь по ньому |
+| `error` | Текст для людини, напр. `'session already refunded'`. Не контракт |
+| `description` | Додаткова деталь, часто порожня |
+| `uuid` | Серверний id для кореляції — вказуйте в зверненнях до підтримки |
 
-const body = err.responseJson as NovaPayErrorBody;
+`NovaPayValidationError` — тіло запиту не пройшло валідацію:
 
-if (body.type === 'processing') {
-  body.code;      // 'SessionNotFoundError' | 'SessionAlreadyRefundedError' | 'NotFoundError' | …
-  body.error;     // 'session already refunded'
-} else {
-  body.errors;    // [{ path: 'client_phone', code: 'invalid_type', message: '…' }]
-}
-```
+| Властивість | Опис |
+|---|---|
+| `errors` | `[{ path: 'client_phone', code: 'invalid_type', message: '…' }]` |
+| `paths` | Тільки імена відхилених полів, напр. `['client_phone']` |
+| `uuid` | Серверний id для кореляції |
 
-Розгалужуйтесь по `code`, ніколи по тексту `error`. Обидві форми несуть `uuid` — вказуйте його в зверненнях до підтримки. Приводьте тип лише після перевірки, що тіло — об'єкт: 5xx і помилки шлюзу не зобов'язані відповідати жодній із форм.
+Підклас видається лише тоді, коли поля, які він обіцяє, реально є у відповіді. Обрізане чи хибно помічене 4xx залишиться звичайним `NovaPayApiError`, а не віддасть вам `code: undefined` — тому `err.code` ніколи не бреше.
 
-Таймаут перериває запит і відхиляє проміс з `AbortError`.
+`uuid` свідомо не входить у `err.message`: агрегатори логів групують по тексту помилки, і id запиту всередині дав би одну групу на кожен запит замість однієї на кожен тип.
+
+`NovaPayConfigError` кидається на битий PEM або відсутній `novapayPublicKeyPem` — на етапі `createClient`, до будь-якого запиту. Це поламаний деплой, а не невдалий платіж.
+
+Скасування відхиляє проміс, а не резолвить: таймаут `timeoutMs` кидає `TimeoutError`, а переданий `signal` — свою причину скасування (за замовчуванням `AbortError`). Обидва — `DOMException`, а не `NovaPayApiError`: запит до NovaPay не дійшов.
 
 **Автоматичних ретраїв немає.** `addPayment` не ідемпотентний — сліпий повтор може списати з клієнта двічі. При таймауті чи 5xx спочатку викличте `getStatus`, щоб дізнатися, що реально сталося.
 

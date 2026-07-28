@@ -9,6 +9,7 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
+    "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
     "types": ["node"]
   },
