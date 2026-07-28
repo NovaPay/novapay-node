@@ -215,6 +215,11 @@ Acquiring and Checkout share one host per environment:
 
 `getExternalApiBaseUrl(env)` resolves the host outside a client.
 
+**Test (QE) keys** — merchant `2`, its private key and the NovaPay public key — are published in
+[Authentication](https://novapay.readme.io/reference/authentication); test cards are in
+[Test data](https://novapay.readme.io/reference/testing-data). Production keys are generated in the
+Acquiring3 admin panel ([instructions](https://nova-pay.atlassian.net/wiki/spaces/EXT/pages/694779954/Acquiring3)).
+
 **Note on keys in env vars:** PEM keys are multi-line. In a `.env` file either quote the whole value and keep real newlines, or store it base64-encoded and decode at startup — a PEM with literal `\n` will not parse.
 
 ## Errors

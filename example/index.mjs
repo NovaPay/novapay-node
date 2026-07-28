@@ -79,6 +79,7 @@ function toView(p) {
     ...ITEMS[p.mode],
     createdAt: new Date(p.createdAt).toLocaleTimeString('uk-UA'),
     canComplete: p.mode === 'hold' && p.status === 'holded',
+    canPay: p.status === 'created',
     paytype: p.callback?.paytype ?? '—',
     pan: p.callback?.card_details?.pan ?? '—',
     rrn: p.callback?.RRN ?? '—',
@@ -222,8 +223,9 @@ app.use((err, _req, res, _next) => {
     .send(`NovaPay error: ${errorText(err)}`);
 });
 
-app.listen(3000, () => {
-  console.log(`Landing:  http://127.0.0.1:3000`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Landing:  http://127.0.0.1:${PORT}`);
   console.log(`Public:   ${PUBLIC_URL}`);
   console.log(`Postback: ${PUBLIC_URL}/novapay/webhook`);
 });

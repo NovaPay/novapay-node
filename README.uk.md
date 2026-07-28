@@ -215,6 +215,11 @@ Acquiring і Checkout використовують спільний хост д�
 
 `getExternalApiBaseUrl(env)` віддає хост поза клієнтом.
 
+**Тестові (QE) ключі** — мерчант `2`, його приватний ключ і публічний ключ NovaPay — опубліковані в
+[Автентифікація](https://novapay.readme.io/reference/authentication), тестові картки — у
+[Тестові дані](https://novapay.readme.io/reference/testing-data). Продуктові ключі генеруються в адмін-панелі
+Acquiring3 ([інструкція](https://nova-pay.atlassian.net/wiki/spaces/EXT/pages/694779954/Acquiring3)).
+
 **Про ключі в змінних середовища:** PEM — багаторядковий. У `.env` або візьміть значення в лапки зі справжніми переносами рядків, або зберігайте у base64 і декодуйте на старті — PEM з літеральними `\n` не розпарситься.
 
 ## Помилки

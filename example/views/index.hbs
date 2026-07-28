@@ -36,7 +36,7 @@
               <form method="post" action="/hold/{{sessionId}}/complete"><button class="ghost" type="submit">Списати</button></form>
               <form method="post" action="/hold/{{sessionId}}/void"><button class="ghost" type="submit">Скасувати</button></form>
             {{/if}}
-            <a class="badge" href="{{url}}">Оплатити</a>
+            {{#if canPay}}<a class="badge" href="{{url}}">Оплатити</a>{{/if}}
           </td>
         </tr>
       {{/each}}
