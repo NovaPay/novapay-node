@@ -23,7 +23,7 @@ jobs:
         # 20.3+ is required for AbortSignal.any.
         node: [20, 22, 24]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
@@ -44,7 +44,7 @@ jobs:
       contents: read
       id-token: write # required for npm provenance
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: 24
