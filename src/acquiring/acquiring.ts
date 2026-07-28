@@ -1,4 +1,4 @@
-import { paths } from '../constants.js';
+import { paths, withSdkMetadata } from '../constants.js';
 import { signedPost } from '../http.js';
 import type {
   AddPaymentRequest,
@@ -24,7 +24,7 @@ export class AcquiringClient {
     return signedPost({
       ...this.opts,
       path: paths.acquiring.createSession,
-      body,
+      body: withSdkMetadata(body),
     }) as Promise<SessionCreateResponse>;
   }
 

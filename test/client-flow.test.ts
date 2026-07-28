@@ -1,7 +1,14 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { createClient } from '../src/client.js';
-import { HEADER_X_SIGN, paths, TEST_BASE_URL } from '../src/constants.js';
+import {
+  HEADER_X_SIGN,
+  paths,
+  SDK_RUNTIME,
+  SDK_SOURCE_NAME,
+  SDK_VERSION,
+  TEST_BASE_URL,
+} from '../src/constants.js';
 import { NovaPayApiError } from '../src/errors.js';
 import { signRequestBody } from '../src/sign.js';
 import { joinBaseAndPath } from '../src/url.js';
@@ -67,6 +74,7 @@ describe('acquiring flow', () => {
           merchant_id: '2',
           client_phone: '+380501112233',
           callback_url: 'https://example.com/cb',
+          metadata: { source_name: SDK_SOURCE_NAME, version: SDK_VERSION, runtime: SDK_RUNTIME },
         });
         return new Response(JSON.stringify({ id: acquiringSessionId }), { status: 200 });
       }
@@ -114,6 +122,7 @@ describe('checkout flow', () => {
           merchant_id: '2',
           callback_url: 'https://example.com/cb',
           client_phone: '+380501112233',
+          metadata: { source_name: SDK_SOURCE_NAME, version: SDK_VERSION, runtime: SDK_RUNTIME },
         });
         return new Response(JSON.stringify({ id: checkoutSessionId }), { status: 200 });
       }

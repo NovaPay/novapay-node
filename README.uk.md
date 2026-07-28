@@ -48,6 +48,8 @@ console.log('Редірект клієнта на:', payment.url);
 
 `createSession` повертає `{ id }` — це і є ідентифікатор сесії для всіх наступних викликів.
 
+Обидва `createSession` автоматично додають `metadata.source_name` (`novapay_node`), `metadata.version` (версія цього пакета) та `metadata.runtime` (`node/<process.versions.node>`), щоб NovaPay бачив джерело трафіку. Ваші власні ключі `metadata` мають пріоритет — будь-який із цих трьох можна перевизначити.
+
 Передайте `use_hold: true` у `addPayment`, щоб заблокувати кошти зараз і списати пізніше через `completeHold`.
 
 ### Checkout

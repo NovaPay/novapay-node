@@ -40,6 +40,8 @@ export type CreateCheckoutSessionRequest = {
   client_phone?: string;
   create_express_waybill?: boolean;
   delivery?: JsonObject;
+  /** Undocumented in NovaPay's reference, but accepted and echoed back in get-status. */
+  metadata?: JsonObject;
 };
 
 /**

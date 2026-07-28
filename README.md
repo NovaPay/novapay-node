@@ -48,6 +48,8 @@ console.log('Redirect the customer to:', payment.url);
 
 `createSession` returns `{ id }` — that `id` is the session id you pass everywhere else.
 
+Both `createSession` methods stamp `metadata.source_name` (`novapay_node`), `metadata.version` (this package's version) and `metadata.runtime` (`node/<process.versions.node>`) so NovaPay can attribute traffic. Your own `metadata` keys are merged on top and win, so you can override any of them.
+
 Pass `use_hold: true` to `addPayment` to authorize now and capture later with `completeHold`.
 
 ### Checkout
