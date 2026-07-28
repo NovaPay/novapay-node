@@ -6,7 +6,7 @@
     "start": "node index.mjs"
   },
   "dependencies": {
-    "express": "^4.21.2",
+    "express": "^5.2.1",
     "hbs": "^4.2.0",
     "novapay": "file:.."
   }
