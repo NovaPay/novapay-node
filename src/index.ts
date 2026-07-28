@@ -38,6 +38,7 @@ export {
   type NovaPayFieldError,
   NovaPayProcessingError,
   type NovaPayProcessingErrorBody,
+  NovaPaySignatureError,
   NovaPayValidationError,
   type NovaPayValidationErrorBody,
 } from './errors.js';

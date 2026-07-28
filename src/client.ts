@@ -1,7 +1,8 @@
 import { AcquiringClient } from './acquiring/acquiring.js';
 import { CheckoutClient } from './checkout/checkout.js';
 import { getExternalApiBaseUrl, NovaPayEnvironment } from './environment.js';
-import { NovaPayConfigError } from './errors.js';
+import { NovaPayConfigError, NovaPaySignatureError } from './errors.js';
+import type { AcquiringPostbackV3 } from './postbacks/types-acquiring.js';
 import { parsePublicKey, verifyWithKey } from './sign.js';
 
 export type CreateNovaPayClientOptions = {
@@ -46,6 +47,20 @@ export type NovaPayClient = {
    * re-serializing the parsed body will not match.
    */
   verifyPostback: (rawBody: string | Uint8Array, xSign: string) => boolean;
+  /**
+   * Verifies the signature and then decodes the postback in one step — the order that keeps you
+   * from accidentally verifying an already re-serialized body.
+   *
+   * `rawBody` must be the untouched request bytes (a `Buffer` from your body parser is fine).
+   * Pass {@link import('./postbacks/types-checkout.js').CheckoutPostbackV3} as the type argument
+   * for a checkout postback.
+   *
+   * @throws NovaPaySignatureError when the signature does not match the raw request body
+   * @throws NovaPayConfigError when the client was created without `novapayPublicKeyPem`
+   * @throws SyntaxError when a body that *did* pass verification is not JSON — NovaPay itself
+   *                     sent something unparseable, so this is not yours to handle: let it 500.
+   */
+  parsePostback: <T = AcquiringPostbackV3>(rawBody: string | Uint8Array, xSign: string) => T;
 };
 
 export function createClient(options: CreateNovaPayClientOptions): NovaPayClient {
@@ -62,16 +77,28 @@ export function createClient(options: CreateNovaPayClientOptions): NovaPayClient
     fetchFn: options.fetchFn,
     timeoutMs: options.timeoutMs,
   };
+  const verifyPostback = (rawBody: string | Uint8Array, xSign: string): boolean => {
+    if (!novapayPublicKey) {
+      throw new NovaPayConfigError(
+        'verifyPostback requires novapayPublicKeyPem in createClient options (NovaPay public key from authentication docs).',
+      );
+    }
+    return verifyWithKey(rawBody, xSign, novapayPublicKey);
+  };
+
   return {
     acquiring: new AcquiringClient({ ...shared, baseUrl: acquiringBaseUrl }),
     checkout: new CheckoutClient({ ...shared, baseUrl: checkoutBaseUrl }),
-    verifyPostback: (rawBody, xSign) => {
-      if (!novapayPublicKey) {
-        throw new NovaPayConfigError(
-          'verifyPostback requires novapayPublicKeyPem in createClient options (NovaPay public key from authentication docs).',
-        );
+    verifyPostback,
+    parsePostback: <T = AcquiringPostbackV3>(rawBody: string | Uint8Array, xSign: string): T => {
+      if (!verifyPostback(rawBody, xSign)) {
+        throw new NovaPaySignatureError('Postback signature does not match the raw request body.');
       }
-      return verifyWithKey(rawBody, xSign, novapayPublicKey);
+      // Past the signature check the bytes are provably NovaPay's, so there is no shape to
+      // defend against — only `JSON.parse`'s own SyntaxError, which callers should not swallow.
+      return JSON.parse(
+        typeof rawBody === 'string' ? rawBody : new TextDecoder().decode(rawBody),
+      ) as T;
     },
   };
 }

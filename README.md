@@ -51,7 +51,7 @@ console.log('Redirect the customer to:', payment.url);
 
 `createSession` returns `{ id }` — that `id` is the session id you pass everywhere else.
 
-Both `createSession` methods stamp `metadata.source_name` (`novapay_node`), `metadata.version` (this package's version) and `metadata.runtime` (`node/<process.versions.node>`) so NovaPay can attribute traffic. Your own `metadata` keys are merged on top and win, so you can override any of them.
+Both `createSession` methods stamp `metadata.source_name` (`novapay_node`), `metadata.version` (this package's version) and `metadata.runtime` (`node/<process.versions.node>`) so NovaPay can attribute traffic. Your own `metadata` keys are kept, those three win on a name collision.
 
 Pass `use_hold: true` to `addPayment` to authorize now and capture later with `completeHold`.
 
@@ -81,26 +81,47 @@ NovaPay signs postbacks with **its own** RSA public key (not your merchant key) 
 
 ```ts
 import express from 'express';
-import { WEBHOOK_HEADER_X_SIGN, type AcquiringPostbackV3 } from 'novapay';
+import { NovaPaySignatureError, WEBHOOK_HEADER_X_SIGN } from 'novapay';
 
 const app = express();
 app.use(express.json({ verify: (req, _res, buf) => ((req as any).rawBody = buf) }));
 
 app.post('/novapay/postback', (req, res) => {
   const xSign = req.get(WEBHOOK_HEADER_X_SIGN);
-  if (!xSign || !client.verifyPostback((req as any).rawBody, xSign)) {
-    return res.sendStatus(401);
+  if (!xSign) return res.sendStatus(400);
+
+  try {
+    const postback = client.parsePostback((req as any).rawBody, xSign);
+    console.log(postback.id, postback.status);   // `id` is the session id
+  } catch (err) {
+    if (err instanceof NovaPaySignatureError) return res.sendStatus(401);
+    throw err;   // a missing key is a broken deployment — it must not answer 401
   }
 
-  const postback = req.body as AcquiringPostbackV3;
-  console.log(postback.id, postback.status);
   res.sendStatus(200);
 });
 ```
 
+`parsePostback` verifies the signature and then decodes — in that order, so an already re-serialized
+body can never be the thing you verified. It returns `AcquiringPostbackV3`; pass `CheckoutPostbackV3`
+as the type argument for a checkout postback:
+
+```ts
+const postback = client.parsePostback<CheckoutPostbackV3>(rawBody, xSign);
+postback.delivery?.express_waybills;
+```
+
 `rawBody` takes `string | Uint8Array`, so a `Buffer` from any body parser fits as-is.
 
-`client.verifyPostback` throws `NovaPayConfigError` if you did not pass `novapayPublicKeyPem` to `createClient`. To verify without a client:
+Catch `NovaPaySignatureError` and nothing wider. The other two throws are not 401s: a
+`NovaPayConfigError` means you never passed `novapayPublicKeyPem`, and a `SyntaxError` means NovaPay
+sent a signed body that is not JSON. Answering 401 to either buries a broken deployment under a loop
+of NovaPay retries — let them 500 and page someone.
+
+If you only need the boolean, `verifyPostback(rawBody, xSign)` does the check alone. Both throw
+`NovaPayConfigError` if you did not pass `novapayPublicKeyPem` to `createClient`; on a signature
+mismatch `parsePostback` throws `NovaPaySignatureError` where `verifyPostback` returns `false`.
+To verify without a client:
 
 ```ts
 import { verifyPostbackSignature } from 'novapay';
@@ -229,6 +250,7 @@ Everything the SDK throws extends `NovaPayError`, so a single `instanceof` catch
 ```
 NovaPayError
 ├── NovaPayConfigError          your call is wrong — bad PEM, missing option. Fix the code.
+├── NovaPaySignatureError       a postback did not match its x-sign-v2. Reject the request.
 └── NovaPayApiError             NovaPay answered non-2xx.
     ├── NovaPayProcessingError    a documented business rejection.
     └── NovaPayValidationError    the body failed schema validation.
@@ -290,9 +312,13 @@ A response only gets a subclass when the fields that subclass promises are actua
 
 `uuid` is deliberately kept out of `err.message`: log aggregators group by message, and a per-request id in there would give you one group per error instead of one per kind.
 
-`NovaPayConfigError` is thrown for a malformed PEM or a missing `novapayPublicKeyPem` — at `createClient` time, before any request. It means a broken deployment, not a failed payment.
+`NovaPayConfigError` means a broken deployment, not a failed payment. A malformed PEM throws at `createClient` time, before any request; a *missing* `novapayPublicKeyPem` is only noticed by the first `verifyPostback`/`parsePostback` call, because nothing before it needs the key.
+
+`NovaPaySignatureError` is thrown by `parsePostback` alone, and means exactly one thing: this postback was not signed by NovaPay. Answer 401 and drop it.
 
 Cancellation rejects rather than resolves: a `timeoutMs` expiry throws a `TimeoutError`, and a caller-supplied `signal` throws that signal's abort reason (an `AbortError` by default). Both are `DOMException`s, not `NovaPayApiError` — no request reached NovaPay.
+
+The other thing outside the `NovaPayError` tree is `JSON.parse`'s own `SyntaxError` from `parsePostback`: past the signature check the bytes are provably NovaPay's, so there is no merchant-side mistake left to classify.
 
 **There are no automatic retries.** `addPayment` is not idempotent — a blind retry can charge the customer twice. On a timeout or 5xx, call `getStatus` to find out what actually happened before retrying.
 

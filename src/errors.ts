@@ -39,8 +39,10 @@ export type NovaPayErrorBody = NovaPayProcessingErrorBody | NovaPayValidationErr
  * Base class for everything this SDK throws. Catch it to catch any NovaPay error
  * without listing the subclasses.
  *
- * Cancellation is the one exception: an expired `timeoutMs` or an aborted `signal`
- * rejects with a `DOMException`, because no request reached NovaPay.
+ * Two things sit outside the tree, both because no merchant mistake produced them: an expired
+ * `timeoutMs` or an aborted `signal` rejects with a `DOMException` (no request reached NovaPay),
+ * and `client.parsePostback` lets `JSON.parse`'s `SyntaxError` through on a body that passed
+ * signature verification (NovaPay itself sent something unparseable).
  */
 export abstract class NovaPayError extends Error {}
 
@@ -52,6 +54,18 @@ export class NovaPayConfigError extends NovaPayError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = 'NovaPayConfigError';
+  }
+}
+
+/**
+ * An incoming postback did not match its `x-sign-v2` signature — reject the request.
+ *
+ * Thrown by `client.parsePostback`; `client.verifyPostback` returns `false` instead.
+ */
+export class NovaPaySignatureError extends NovaPayError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NovaPaySignatureError';
   }
 }
 

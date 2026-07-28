@@ -11,16 +11,17 @@ export const SDK_RUNTIME = `node/${process.versions.node}`;
 
 /**
  * Stamps SDK identification onto a create-session body.
- * Merchant-supplied keys win, so a caller can override any of them.
+ * Merchant keys are kept; the SDK keys win on a collision, so attribution cannot be lost by a
+ * caller spreading its own metadata.
  */
 export function withSdkMetadata<T extends { metadata?: Record<string, unknown> }>(body: T): T {
   return {
     ...body,
     metadata: {
+      ...body.metadata,
       source_name: SDK_SOURCE_NAME,
       version: SDK_VERSION,
       runtime: SDK_RUNTIME,
-      ...body.metadata,
     },
   };
 }

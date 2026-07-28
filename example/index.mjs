@@ -202,15 +202,20 @@ app.get(['/success', '/fail'], (req, res) => {
 app.post('/novapay/webhook', (req, res) => {
   const xSign = req.get(WEBHOOK_HEADER_X_SIGN);
   if (!xSign) return res.status(400).send(`missing ${WEBHOOK_HEADER_X_SIGN}`);
-  if (!client.verifyPostback(req.rawBody, xSign)) {
+
+  // The signature covers the raw bytes — pass the buffer, never the parsed body.
+  let postback;
+  try {
+    postback = client.parsePostback(req.rawBody, xSign);
+  } catch {
     return res.status(401).send('invalid postback signature');
   }
 
-  const purchase = purchases.get(req.body.id);
+  const purchase = purchases.get(postback.id);
   if (purchase) {
-    purchase.status = req.body.status ?? 'unknown';
-    purchase.callback = req.body;
-    console.log(`postback: ${req.body.id} → ${purchase.status}`);
+    purchase.status = postback.status ?? 'unknown';
+    purchase.callback = postback;
+    console.log(`postback: ${postback.id} → ${purchase.status}`);
   }
   res.status(200).send('OK');
 });

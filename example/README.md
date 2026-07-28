@@ -29,7 +29,7 @@ QE-ключі (`merchant_id` — `2`) опубліковані в доці: [А�
 | `POST /buy/:mode` | `createSession` + `addPayment` (`hold` → `use_hold: true`), редірект на сторінку оплати — кожен клік створює нову сесію |
 | `POST /hold/:sessionId/:action` | `completeHold` або `voidSession`, далі `getStatus` для справжнього статусу; помилка API показується в рядку покупки |
 | `GET /success` `GET /fail` | `success_url` / `fail_url`, показують статус і payload postback |
-| `POST /novapay/webhook` | Перевірка `x-sign-v2` по **сирому** тілу, оновлення статусу покупки |
+| `POST /novapay/webhook` | `parsePostback` перевіряє `x-sign-v2` по **сирому** тілу і оновлює статус покупки |
 
 Стан тримається в пам'яті — після рестарту список порожній.
 

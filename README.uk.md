@@ -51,7 +51,7 @@ console.log('Редірект клієнта на:', payment.url);
 
 `createSession` повертає `{ id }` — це і є ідентифікатор сесії для всіх наступних викликів.
 
-Обидва `createSession` автоматично додають `metadata.source_name` (`novapay_node`), `metadata.version` (версія цього пакета) та `metadata.runtime` (`node/<process.versions.node>`), щоб NovaPay бачив джерело трафіку. Ваші власні ключі `metadata` мають пріоритет — будь-який із цих трьох можна перевизначити.
+Обидва `createSession` автоматично додають `metadata.source_name` (`novapay_node`), `metadata.version` (версія цього пакета) та `metadata.runtime` (`node/<process.versions.node>`), щоб NovaPay бачив джерело трафіку. Ваші ключі `metadata` зберігаються, ці три перемагають при збігу назв.
 
 Передайте `use_hold: true` у `addPayment`, щоб заблокувати кошти зараз і списати пізніше через `completeHold`.
 
@@ -81,26 +81,47 @@ NovaPay підписує postback-и **своїм** публічним RSA-кл�
 
 ```ts
 import express from 'express';
-import { WEBHOOK_HEADER_X_SIGN, type AcquiringPostbackV3 } from 'novapay';
+import { NovaPaySignatureError, WEBHOOK_HEADER_X_SIGN } from 'novapay';
 
 const app = express();
 app.use(express.json({ verify: (req, _res, buf) => ((req as any).rawBody = buf) }));
 
 app.post('/novapay/postback', (req, res) => {
   const xSign = req.get(WEBHOOK_HEADER_X_SIGN);
-  if (!xSign || !client.verifyPostback((req as any).rawBody, xSign)) {
-    return res.sendStatus(401);
+  if (!xSign) return res.sendStatus(400);
+
+  try {
+    const postback = client.parsePostback((req as any).rawBody, xSign);
+    console.log(postback.id, postback.status);   // `id` — це ідентифікатор сесії
+  } catch (err) {
+    if (err instanceof NovaPaySignatureError) return res.sendStatus(401);
+    throw err;   // забутий ключ — це поламаний деплой, він не має відповідати 401
   }
 
-  const postback = req.body as AcquiringPostbackV3;
-  console.log(postback.id, postback.status);
   res.sendStatus(200);
 });
 ```
 
+`parsePostback` спочатку перевіряє підпис і лише потім декодує — саме в такому порядку, щоб
+перезібране тіло ніколи не виявилось тим, що ви перевіряли. Повертає `AcquiringPostbackV3`; для
+checkout-postback передайте `CheckoutPostbackV3` як тип-аргумент:
+
+```ts
+const postback = client.parsePostback<CheckoutPostbackV3>(rawBody, xSign);
+postback.delivery?.express_waybills;
+```
+
 `rawBody` приймає `string | Uint8Array`, тому `Buffer` з будь-якого body-парсера підходить як є.
 
-`client.verifyPostback` кидає `NovaPayConfigError`, якщо в `createClient` не передали `novapayPublicKeyPem`. Перевірка без клієнта:
+Ловіть `NovaPaySignatureError` і нічого ширшого. Інші два throw-и — не 401: `NovaPayConfigError`
+означає, що ви не передали `novapayPublicKeyPem`, а `SyntaxError` — що NovaPay надіслав підписане
+тіло, яке не є JSON. Відповідь 401 на будь-який із них ховає поламаний деплой під циклом ретраїв
+NovaPay — хай буде 500 і хтось прокинеться.
+
+Якщо потрібен тільки булевий результат, є `verifyPostback(rawBody, xSign)`. Обидва кидають
+`NovaPayConfigError`, якщо в `createClient` не передали `novapayPublicKeyPem`; при незбігу підпису
+`parsePostback` кидає `NovaPaySignatureError`, а `verifyPostback` повертає `false`.
+Перевірка без клієнта:
 
 ```ts
 import { verifyPostbackSignature } from 'novapay';
@@ -229,6 +250,7 @@ Acquiring3 ([інструкція](https://nova-pay.atlassian.net/wiki/spaces/EX
 ```
 NovaPayError
 ├── NovaPayConfigError          виклик неправильний — битий PEM, забута опція. Правити код.
+├── NovaPaySignatureError       postback не збігся з x-sign-v2. Відхилити запит.
 └── NovaPayApiError             NovaPay відповів не-2xx.
     ├── NovaPayProcessingError    задокументована бізнесова відмова.
     └── NovaPayValidationError    тіло не пройшло валідацію схеми.
@@ -290,9 +312,13 @@ try {
 
 `uuid` свідомо не входить у `err.message`: агрегатори логів групують по тексту помилки, і id запиту всередині дав би одну групу на кожен запит замість однієї на кожен тип.
 
-`NovaPayConfigError` кидається на битий PEM або відсутній `novapayPublicKeyPem` — на етапі `createClient`, до будь-якого запиту. Це поламаний деплой, а не невдалий платіж.
+`NovaPayConfigError` означає поламаний деплой, а не невдалий платіж. Битий PEM кидається на етапі `createClient`, до будь-якого запиту; *відсутній* `novapayPublicKeyPem` виявиться лише на першому виклику `verifyPostback`/`parsePostback` — до нього ключ нікому не потрібен.
+
+`NovaPaySignatureError` кидає тільки `parsePostback`, і він означає рівно одне: цей postback не підписаний NovaPay. Відповідайте 401 і викидайте його.
 
 Скасування відхиляє проміс, а не резолвить: таймаут `timeoutMs` кидає `TimeoutError`, а переданий `signal` — свою причину скасування (за замовчуванням `AbortError`). Обидва — `DOMException`, а не `NovaPayApiError`: запит до NovaPay не дійшов.
+
+Друге, що лежить поза деревом `NovaPayError`, — власний `SyntaxError` від `JSON.parse` у `parsePostback`: після перевірки підпису байти доказово належать NovaPay, тому класифікувати тут уже нічого — помилки мерчанта в цьому місці бути не може.
 
 **Автоматичних ретраїв немає.** `addPayment` не ідемпотентний — сліпий повтор може списати з клієнта двічі. При таймауті чи 5xx спочатку викличте `getStatus`, щоб дізнатися, що реально сталося.
 

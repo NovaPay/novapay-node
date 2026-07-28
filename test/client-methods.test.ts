@@ -45,7 +45,7 @@ describe('checkout void/completeHold/expire', () => {
 });
 
 describe('createSession SDK metadata', () => {
-  it('stamps source_name/version and lets merchant keys win', async () => {
+  it('stamps source_name/version/runtime and keeps merchant keys, SDK wins on a collision', async () => {
     const sent: unknown[] = [];
     const fetchFn = vi.fn(async (_input: string | URL, init?: RequestInit) => {
       sent.push(JSON.parse(String(init?.body)));
@@ -64,13 +64,8 @@ describe('createSession SDK metadata', () => {
     const stamp = { source_name: SDK_SOURCE_NAME, version: SDK_VERSION, runtime: SDK_RUNTIME };
     expect(sent[0]).toMatchObject({ metadata: stamp });
     expect(sent[1]).toMatchObject({ metadata: stamp });
-    expect(sent[2]).toMatchObject({
-      metadata: {
-        source_name: 'my_shop',
-        version: SDK_VERSION,
-        runtime: SDK_RUNTIME,
-        order_id: '42',
-      },
-    });
+    // Merchant keys are kept; the three SDK keys win on a name collision, so attribution
+    // cannot be lost by a caller spreading its own metadata.
+    expect(sent[2]).toMatchObject({ metadata: { ...stamp, order_id: '42' } });
   });
 });

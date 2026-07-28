@@ -14,6 +14,7 @@ import {
   NovaPayConfigError,
   NovaPayError,
   NovaPayProcessingError,
+  NovaPaySignatureError,
   NovaPayValidationError,
 } from '../src/errors.js';
 import { signRequestBody } from '../src/sign.js';
@@ -278,6 +279,41 @@ describe('verifyPostback', () => {
     expect(() => client.verifyPostback('{}', 'abc')).toThrow(
       'verifyPostback requires novapayPublicKeyPem in createClient options',
     );
+  });
+});
+
+describe('parsePostback', () => {
+  const client = createClient({
+    privateKeyPem: merchantPrivateKeyPem,
+    novapayPublicKeyPem,
+  });
+
+  it('verifies then decodes, from a string and from raw bytes', () => {
+    const raw = '{"id":"sess-1","status":"paid","metadata":{"order_id":"42"}}';
+    const xSign = signRequestBody(raw, novapayPrivateKeyPem);
+    expect(client.parsePostback(raw, xSign)).toMatchObject({ id: 'sess-1', status: 'paid' });
+    // Express hands you a Buffer; a plain Uint8Array must work too.
+    expect(client.parsePostback(Buffer.from(raw), xSign)).toMatchObject({ id: 'sess-1' });
+    expect(client.parsePostback(new Uint8Array(Buffer.from(raw)), xSign)).toMatchObject({
+      id: 'sess-1',
+    });
+  });
+
+  it('throws NovaPaySignatureError before decoding when the body does not match', () => {
+    const raw = '{"id":"sess-1","status":"paid"}';
+    const xSign = signRequestBody(raw, novapayPrivateKeyPem);
+    expect(() => client.parsePostback(`${raw} `, xSign)).toThrow(NovaPaySignatureError);
+  });
+
+  it('lets JSON.parse throw on a verified body that is not JSON', () => {
+    const raw = 'not json';
+    const xSign = signRequestBody(raw, novapayPrivateKeyPem);
+    expect(() => client.parsePostback(raw, xSign)).toThrow(SyntaxError);
+  });
+
+  it('throws when novapayPublicKeyPem was not set on createClient', () => {
+    const bare = createClient({ privateKeyPem: merchantPrivateKeyPem });
+    expect(() => bare.parsePostback('{}', 'abc')).toThrow(NovaPayConfigError);
   });
 });
 
