@@ -1,5 +1,7 @@
+import type { KeyObject } from 'node:crypto';
 import { paths, withSdkMetadata } from '../constants.js';
-import { signedPost } from '../http.js';
+import { post, type RequestOptions } from '../http.js';
+import { parsePrivateKey } from '../sign.js';
 import type {
   AddPaymentRequest,
   CompleteHoldRequest,
@@ -18,22 +20,40 @@ export type AcquiringClientOptions = {
 };
 
 export class AcquiringClient {
-  constructor(private readonly opts: AcquiringClientOptions) {}
+  readonly #opts: AcquiringClientOptions;
+  /** Parsed once — a bad PEM throws here, not on the first charge. */
+  readonly #privateKey: KeyObject;
 
-  createSession(body: CreateSessionRequest): Promise<SessionCreateResponse> {
-    return signedPost({
-      ...this.opts,
-      path: paths.acquiring.createSession,
-      body: withSdkMetadata(body),
-    }) as Promise<SessionCreateResponse>;
+  constructor(opts: AcquiringClientOptions) {
+    this.#opts = opts;
+    this.#privateKey = parsePrivateKey(opts.privateKeyPem);
   }
 
-  addPayment(body: AddPaymentRequest): Promise<SessionPaymentResponse> {
-    return signedPost({
-      ...this.opts,
-      path: paths.acquiring.addPayment,
+  #post(path: string, body: unknown, options?: RequestOptions): Promise<unknown> {
+    return post({
+      baseUrl: this.#opts.baseUrl,
+      path,
       body,
-    }) as Promise<SessionPaymentResponse>;
+      privateKey: this.#privateKey,
+      fetchFn: this.#opts.fetchFn,
+      timeoutMs: options?.timeoutMs ?? this.#opts.timeoutMs,
+      signal: options?.signal,
+    });
+  }
+
+  createSession(
+    body: CreateSessionRequest,
+    options?: RequestOptions,
+  ): Promise<SessionCreateResponse> {
+    return this.#post(
+      paths.acquiring.createSession,
+      withSdkMetadata(body),
+      options,
+    ) as Promise<SessionCreateResponse>;
+  }
+
+  addPayment(body: AddPaymentRequest, options?: RequestOptions): Promise<SessionPaymentResponse> {
+    return this.#post(paths.acquiring.addPayment, body, options) as Promise<SessionPaymentResponse>;
   }
 
   /**
@@ -43,12 +63,8 @@ export class AcquiringClient {
    * Responds with a literal `null` body; call {@link getStatus} to see the outcome.
    * Throws `NovaPayApiError` (`SessionAlreadyRefundedError`) when the session was never paid.
    */
-  voidSession(body: SessionIdRequest): Promise<null> {
-    return signedPost({
-      ...this.opts,
-      path: paths.acquiring.voidSession,
-      body,
-    }) as Promise<null>;
+  voidSession(body: SessionIdRequest, options?: RequestOptions): Promise<null> {
+    return this.#post(paths.acquiring.voidSession, body, options) as Promise<null>;
   }
 
   /**
@@ -57,28 +73,16 @@ export class AcquiringClient {
    * Responds with a literal `null` body; call {@link getStatus} to see the outcome.
    * Throws `NovaPayApiError` (`SessionNotFoundError`) when the hold does not exist or expired.
    */
-  completeHold(body: CompleteHoldRequest): Promise<null> {
-    return signedPost({
-      ...this.opts,
-      path: paths.acquiring.completeHold,
-      body,
-    }) as Promise<null>;
+  completeHold(body: CompleteHoldRequest, options?: RequestOptions): Promise<null> {
+    return this.#post(paths.acquiring.completeHold, body, options) as Promise<null>;
   }
 
   /** Expires an unpaid session. Responds with a literal `null` body. */
-  expireSession(body: SessionIdRequest): Promise<null> {
-    return signedPost({
-      ...this.opts,
-      path: paths.acquiring.expireSession,
-      body,
-    }) as Promise<null>;
+  expireSession(body: SessionIdRequest, options?: RequestOptions): Promise<null> {
+    return this.#post(paths.acquiring.expireSession, body, options) as Promise<null>;
   }
 
-  getStatus(body: SessionIdRequest): Promise<SessionStatusResponse> {
-    return signedPost({
-      ...this.opts,
-      path: paths.acquiring.getStatus,
-      body,
-    }) as Promise<SessionStatusResponse>;
+  getStatus(body: SessionIdRequest, options?: RequestOptions): Promise<SessionStatusResponse> {
+    return this.#post(paths.acquiring.getStatus, body, options) as Promise<SessionStatusResponse>;
   }
 }

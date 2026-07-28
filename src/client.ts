@@ -1,10 +1,14 @@
 import { AcquiringClient } from './acquiring/acquiring.js';
 import { CheckoutClient } from './checkout/checkout.js';
 import { getExternalApiBaseUrl, NovaPayEnvironment } from './environment.js';
-import { verifyPostbackSignature } from './sign.js';
+import { NovaPayConfigError } from './errors.js';
+import { parsePublicKey, verifyWithKey } from './sign.js';
 
 export type CreateNovaPayClientOptions = {
-  /** Merchant RSA private key PEM used to sign outgoing API requests. */
+  /**
+   * Merchant RSA private key PEM used to sign outgoing API requests.
+   * Parsed once here — an invalid PEM throws from `createClient`, not from the first charge.
+   */
   privateKeyPem: string;
   /**
    * NovaPay RSA **public** key PEM used to verify incoming postbacks.
@@ -27,7 +31,7 @@ export type CreateNovaPayClientOptions = {
    */
   checkoutBaseUrl?: string;
   fetchFn?: typeof fetch;
-  /** @default 30_000 */
+  /** Default per-request timeout; override per call with `RequestOptions`. @default 30_000 */
   timeoutMs?: number;
 };
 
@@ -37,8 +41,11 @@ export type NovaPayClient = {
   /**
    * Verifies `x-sign-v2` on a raw postback body using `novapayPublicKeyPem`
    * from {@link CreateNovaPayClientOptions}.
+   *
+   * `rawBody` must be the untouched request bytes (a `Buffer` from your body parser is fine) —
+   * re-serializing the parsed body will not match.
    */
-  verifyPostback: (rawBody: string | Buffer, xSign: string) => boolean;
+  verifyPostback: (rawBody: string | Uint8Array, xSign: string) => boolean;
 };
 
 export function createClient(options: CreateNovaPayClientOptions): NovaPayClient {
@@ -46,6 +53,10 @@ export function createClient(options: CreateNovaPayClientOptions): NovaPayClient
   const resolvedBaseUrl = getExternalApiBaseUrl(env);
   const acquiringBaseUrl = options.acquiringBaseUrl ?? resolvedBaseUrl;
   const checkoutBaseUrl = options.checkoutBaseUrl ?? resolvedBaseUrl;
+  // Parsed up front so a malformed key fails at startup rather than mid-payment.
+  const novapayPublicKey = options.novapayPublicKeyPem
+    ? parsePublicKey(options.novapayPublicKeyPem)
+    : undefined;
   const shared = {
     privateKeyPem: options.privateKeyPem,
     fetchFn: options.fetchFn,
@@ -55,12 +66,12 @@ export function createClient(options: CreateNovaPayClientOptions): NovaPayClient
     acquiring: new AcquiringClient({ ...shared, baseUrl: acquiringBaseUrl }),
     checkout: new CheckoutClient({ ...shared, baseUrl: checkoutBaseUrl }),
     verifyPostback: (rawBody, xSign) => {
-      if (!options.novapayPublicKeyPem) {
-        throw new Error(
+      if (!novapayPublicKey) {
+        throw new NovaPayConfigError(
           'verifyPostback requires novapayPublicKeyPem in createClient options (NovaPay public key from authentication docs).',
         );
       }
-      return verifyPostbackSignature(rawBody, xSign, options.novapayPublicKeyPem);
+      return verifyWithKey(rawBody, xSign, novapayPublicKey);
     },
   };
 }

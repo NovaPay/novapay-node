@@ -6,8 +6,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { createClient } from '../src/client.js';
-import type { NovaPayErrorBody } from '../src/errors.js';
-import { NovaPayApiError } from '../src/errors.js';
+import { NovaPayProcessingError, NovaPayValidationError } from '../src/errors.js';
 
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -112,23 +111,23 @@ describe('recorded QE responses', () => {
     expect(s.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it('error bodies discriminate on type', async () => {
-    for (const [body, expected] of [
-      [RECORDED.processingError, 'processing'],
-      [RECORDED.validationError, 'validation'],
-    ] as const) {
-      const err = await replay(body, 400)
-        .acquiring.voidSession(req)
-        .catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(NovaPayApiError);
-      const parsed = (err as NovaPayApiError).responseJson as NovaPayErrorBody;
-      expect(parsed.type).toBe(expected);
-      expect(parsed.uuid).toBeTruthy();
-      if (parsed.type === 'processing') {
-        expect(parsed.code).toBe('SessionAlreadyRefundedError');
-      } else {
-        expect(parsed.errors[0]?.path).toBe('client_phone');
-      }
-    }
+  it('recorded error bodies map to the right error class', async () => {
+    const processing = await replay(RECORDED.processingError, 400)
+      .acquiring.voidSession(req)
+      .catch((e: unknown) => e);
+    expect(processing).toBeInstanceOf(NovaPayProcessingError);
+    if (!(processing instanceof NovaPayProcessingError)) throw new Error('unreachable');
+    expect(processing.code).toBe('SessionAlreadyRefundedError');
+    expect(processing.error).toBe('session already refunded');
+    expect(processing.uuid).toBe('5e210f43-090c-452f-91a8-702cec42d8ec');
+
+    const validation = await replay(RECORDED.validationError, 400)
+      .acquiring.voidSession(req)
+      .catch((e: unknown) => e);
+    expect(validation).toBeInstanceOf(NovaPayValidationError);
+    if (!(validation instanceof NovaPayValidationError)) throw new Error('unreachable');
+    expect(validation.paths).toEqual(['client_phone']);
+    expect(validation.errors[0]?.code).toBe('invalid_type');
+    expect(validation.uuid).toBe('336d70e3-9b2e-49fe-a6f4-d56e347613eb');
   });
 });

@@ -1,8 +1,17 @@
+import type { SessionStatus } from '../acquiring/types.js';
+
 /**
  * v3 acquiring postback (current as of 2025-10-01).
  * @see https://novapay.readme.io/reference/v3-acquiring-postback-current-version
+ *
+ * Open union: known values autocomplete, unrecognised ones still type-check.
  */
-export type AcquiringPostbackPaytype = 'card' | 'apple_pay' | 'google_pay' | 'wallet' | string;
+export type AcquiringPostbackPaytype =
+  | 'card'
+  | 'apple_pay'
+  | 'google_pay'
+  | 'wallet'
+  | (string & {});
 
 export type AcquiringPostbackProduct = {
   count?: number;
@@ -28,7 +37,8 @@ export type AcquiringPostbackCardDetails = {
  */
 export type AcquiringPostbackV3 = {
   id: string;
-  status?: string;
+  /** Same lifecycle values as {@link SessionStatus} on get-status. */
+  status?: SessionStatus;
   paytype?: AcquiringPostbackPaytype;
   terminal_name?: string;
   RRN?: string;

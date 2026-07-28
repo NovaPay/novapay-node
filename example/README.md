@@ -10,8 +10,13 @@
 ```bash
 ngrok http 3000
 export PUBLIC_URL="https://<subdomain>.ngrok-free.app"
+export NOVAPAY_PRIVATE_KEY_PEM="$(cat merchant-private.pem)"
+export NOVAPAY_PUBLIC_KEY_PEM="$(cat novapay-public.pem)"
 npm run example
 ```
+
+QE-ключі видає підтримка NovaPay (acquiring@novapay.ua). Ключі **не** зберігаються в репозиторії:
+приватний ключ мерчанта ніколи не потрапляє в код застосунку.
 
 Далі відкрити http://127.0.0.1:3000.
 
@@ -32,5 +37,7 @@ npm run example
 | Змінна | Обов'язкова | Опис |
 |--------|-------------|------|
 | `PUBLIC_URL` | **Так** | Публічний HTTPS URL застосунку (ngrok), від нього будуються `callback_url`, `success_url`, `fail_url` |
+| `NOVAPAY_PRIVATE_KEY_PEM` | **Так** | Приватний RSA-ключ мерчанта (QE), підписує вихідні запити |
+| `NOVAPAY_PUBLIC_KEY_PEM` | **Так** | Публічний RSA-ключ NovaPay, перевіряє підпис postback'ів |
 
 Залежності: **express**, **hbs** (див. [`package.json`](package.json)).

@@ -9,7 +9,13 @@ import {
   SDK_VERSION,
   TEST_BASE_URL,
 } from '../src/constants.js';
-import { NovaPayApiError } from '../src/errors.js';
+import {
+  NovaPayApiError,
+  NovaPayConfigError,
+  NovaPayError,
+  NovaPayProcessingError,
+  NovaPayValidationError,
+} from '../src/errors.js';
 import { signRequestBody } from '../src/sign.js';
 import { joinBaseAndPath } from '../src/url.js';
 
@@ -222,7 +228,39 @@ describe('full client flow (example parity)', () => {
   });
 });
 
+describe('key validation', () => {
+  it('createClient rejects a malformed private key PEM', () => {
+    expect(() => createClient({ privateKeyPem: 'not-a-pem' })).toThrow(
+      /privateKeyPem is not a valid private key PEM/,
+    );
+  });
+
+  it('createClient rejects a malformed NovaPay public key PEM', () => {
+    expect(() =>
+      createClient({ privateKeyPem: merchantPrivateKeyPem, novapayPublicKeyPem: 'not-a-pem' }),
+    ).toThrow(/novapayPublicKeyPem is not a valid public key PEM/);
+  });
+
+  it('names the literal-backslash-n footgun, the most common .env mistake', () => {
+    // What a PEM looks like after being pasted into .env unquoted.
+    const flattened = merchantPrivateKeyPem.replaceAll('\n', '\\n');
+    expect(() => createClient({ privateKeyPem: flattened })).toThrow(/literal \\n will not parse/);
+  });
+});
+
 describe('verifyPostback', () => {
+  it('verifies raw bytes, not just strings', () => {
+    const client = createClient({
+      privateKeyPem: merchantPrivateKeyPem,
+      novapayPublicKeyPem,
+    });
+    const raw = '{"id":"sess-1","status":"paid"}';
+    const xSign = signRequestBody(raw, novapayPrivateKeyPem);
+    // Express hands you a Buffer; a plain Uint8Array must work too.
+    expect(client.verifyPostback(Buffer.from(raw), xSign)).toBe(true);
+    expect(client.verifyPostback(new Uint8Array(Buffer.from(raw)), xSign)).toBe(true);
+  });
+
   it('returns false when body does not match signature', () => {
     const client = createClient({
       privateKeyPem: merchantPrivateKeyPem,
@@ -273,5 +311,179 @@ describe('NovaPayApiError', () => {
       }
       return true;
     });
+  });
+});
+
+describe('error class hierarchy', () => {
+  const caught = async (body: string, status: number) => {
+    const fetchFn = vi.fn(async () => new Response(body, { status }));
+    const client = createClient({
+      privateKeyPem: merchantPrivateKeyPem,
+      fetchFn: fetchFn as typeof fetch,
+    });
+    return client.acquiring
+      .voidSession({ merchant_id: '2', session_id: 'x' })
+      .then(() => undefined)
+      .catch((e: unknown) => e);
+  };
+
+  it('throws NovaPayProcessingError with the fields already narrowed', async () => {
+    const err = await caught(
+      '{"uuid":"u-1","type":"processing","error":"session already refunded","description":"d","code":"SessionAlreadyRefundedError"}',
+      400,
+    );
+    expect(err).toBeInstanceOf(NovaPayProcessingError);
+    if (!(err instanceof NovaPayProcessingError)) throw new Error('unreachable');
+    // No cast needed to reach any of these.
+    expect(err.code).toBe('SessionAlreadyRefundedError');
+    expect(err.error).toBe('session already refunded');
+    expect(err.description).toBe('d');
+    expect(err.uuid).toBe('u-1');
+    expect(err.status).toBe(400);
+    expect(err.name).toBe('NovaPayProcessingError');
+    expect(err.message).toContain('SessionAlreadyRefundedError: session already refunded');
+    // The uuid stays off the message so log aggregators can group on it.
+    expect(err.message).not.toContain('u-1');
+  });
+
+  it('throws NovaPayValidationError carrying every rejected field', async () => {
+    const err = await caught(
+      '{"uuid":"u-2","type":"validation","errors":[{"message":"m","code":"invalid_type","path":"client_phone"}]}',
+      400,
+    );
+    expect(err).toBeInstanceOf(NovaPayValidationError);
+    if (!(err instanceof NovaPayValidationError)) throw new Error('unreachable');
+    expect(err.errors).toHaveLength(1);
+    expect(err.errors[0]?.path).toBe('client_phone');
+    expect(err.paths).toEqual(['client_phone']);
+    expect(err.uuid).toBe('u-2');
+    expect(err.message).toContain('client_phone (invalid_type)');
+  });
+
+  it('truncates the message but not the data when many fields fail', async () => {
+    const errors = ['a', 'b', 'c', 'd', 'e'].map((path) => ({
+      message: 'm',
+      code: 'invalid_type',
+      path,
+    }));
+    const err = await caught(JSON.stringify({ uuid: 'u', type: 'validation', errors }), 400);
+    if (!(err instanceof NovaPayValidationError)) throw new Error('expected validation error');
+    expect(err.message).toContain('+2 more');
+    expect(err.errors).toHaveLength(5);
+  });
+
+  it('every API error subclass is catchable as NovaPayApiError and NovaPayError', async () => {
+    for (const body of [
+      '{"uuid":"u","type":"processing","error":"e","description":"","code":"C"}',
+      '{"uuid":"u","type":"validation","errors":[]}',
+      '<html>502</html>',
+    ]) {
+      const err = await caught(body, 400);
+      expect(err).toBeInstanceOf(NovaPayApiError);
+      expect(err).toBeInstanceOf(NovaPayError);
+      expect(err).toBeInstanceOf(Error);
+    }
+  });
+
+  it('falls back to NovaPayApiError for bodies that are not one of the two shapes', async () => {
+    for (const body of ['<html>502</html>', '{"message":"nope"}', 'null']) {
+      const err = await caught(body, 502);
+      expect(err).toBeInstanceOf(NovaPayApiError);
+      expect(err).not.toBeInstanceOf(NovaPayProcessingError);
+      expect(err).not.toBeInstanceOf(NovaPayValidationError);
+    }
+  });
+
+  it('refuses a subclass when the promised fields are missing', async () => {
+    // Mislabelled bodies must not hand the caller `code: undefined`.
+    for (const body of [
+      '{"uuid":"u","type":"processing"}',
+      '{"uuid":"u","type":"validation"}',
+      '{"uuid":"u","type":"validation","errors":"nope"}',
+    ]) {
+      const err = await caught(body, 400);
+      expect(err).toBeInstanceOf(NovaPayApiError);
+      expect(err).not.toBeInstanceOf(NovaPayProcessingError);
+      expect(err).not.toBeInstanceOf(NovaPayValidationError);
+    }
+  });
+
+  it('reports validation with no field details rather than an empty message', async () => {
+    const err = await caught('{"uuid":"u","type":"validation","errors":[]}', 400);
+    expect((err as Error).message).toContain('no field details');
+  });
+
+  it('uses the description when a processing body carries an empty error text', async () => {
+    const err = await caught(
+      '{"uuid":"u","type":"processing","error":"","description":"d","code":"C"}',
+      400,
+    );
+    expect((err as Error).message).toContain('C: processing error');
+  });
+
+  it('config mistakes are NovaPayConfigError, not bare Error', () => {
+    expect(() => createClient({ privateKeyPem: 'nope' })).toThrow(NovaPayConfigError);
+    expect(() =>
+      createClient({ privateKeyPem: merchantPrivateKeyPem, novapayPublicKeyPem: 'nope' }),
+    ).toThrow(NovaPayConfigError);
+    const client = createClient({ privateKeyPem: merchantPrivateKeyPem });
+    expect(() => client.verifyPostback('{}', 'abc')).toThrow(NovaPayConfigError);
+    // Config errors share the base class but are not API errors.
+    try {
+      createClient({ privateKeyPem: 'nope' });
+    } catch (e) {
+      expect(e).toBeInstanceOf(NovaPayError);
+      expect(e).not.toBeInstanceOf(NovaPayApiError);
+      expect((e as Error).name).toBe('NovaPayConfigError');
+      expect((e as Error).cause).toBeInstanceOf(Error);
+    }
+  });
+});
+
+describe('per-call RequestOptions', () => {
+  it('forwards a caller signal and a timeout override on both clients', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const fetchFn = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      seen.push(init?.signal);
+      return new Response('null', { status: 200 });
+    });
+    const client = createClient({
+      privateKeyPem: merchantPrivateKeyPem,
+      fetchFn: fetchFn as typeof fetch,
+      timeoutMs: 60_000,
+    });
+    const ctrl = new AbortController();
+
+    await client.acquiring.getStatus(
+      { merchant_id: '2', session_id: 'x' },
+      { signal: ctrl.signal },
+    );
+    await client.checkout.getStatus({ merchant_id: '2', session_id: 'x' }, { timeoutMs: 1_000 });
+    await client.acquiring.expireSession({ merchant_id: '2', session_id: 'x' });
+
+    expect(seen).toHaveLength(3);
+    for (const signal of seen) {
+      expect(signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it('the caller signal aborts an in-flight client call', async () => {
+    const ctrl = new AbortController();
+    const fetchFn = vi.fn(
+      (_input: string | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('cancelled')));
+        }),
+    );
+    const client = createClient({
+      privateKeyPem: merchantPrivateKeyPem,
+      fetchFn: fetchFn as typeof fetch,
+    });
+    const pending = client.acquiring.getStatus(
+      { merchant_id: '2', session_id: 'x' },
+      { signal: ctrl.signal },
+    );
+    ctrl.abort();
+    await expect(pending).rejects.toThrow('cancelled');
   });
 });
