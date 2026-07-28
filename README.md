@@ -29,7 +29,7 @@ npm install novapay
 import { createClient, NovaPayEnvironment } from 'novapay';
 
 const client = createClient({
-  privateKeyPem: process.env.NOVAPAY_PRIVATE_KEY_PEM!,
+  privateKeyPem: process.env.MERCHANT_PRIVATE_KEY_PEM!,
   novapayPublicKeyPem: process.env.NOVAPAY_PUBLIC_KEY_PEM!,
   environment: NovaPayEnvironment.Production,
 });

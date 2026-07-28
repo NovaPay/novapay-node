@@ -39,13 +39,13 @@ const ITEMS = {
  * QE demo keys. Export them before starting — never hardcode a merchant key in application code.
  * PEM is multi-line: quote the value in .env keeping real newlines, or base64-encode and decode here.
  */
-const MERCHANT_PRIVATE_KEY_PEM = process.env.NOVAPAY_PRIVATE_KEY_PEM;
+const MERCHANT_PRIVATE_KEY_PEM = process.env.MERCHANT_PRIVATE_KEY_PEM;
 const NOVAPAY_PUBLIC_KEY_PEM = process.env.NOVAPAY_PUBLIC_KEY_PEM;
 
 if (!MERCHANT_PRIVATE_KEY_PEM || !NOVAPAY_PUBLIC_KEY_PEM) {
   console.error(
     'Set both keys before running the example:\n' +
-      '  export NOVAPAY_PRIVATE_KEY_PEM="$(cat merchant-private.pem)"\n' +
+      '  export MERCHANT_PRIVATE_KEY_PEM="$(cat merchant-private.pem)"\n' +
       '  export NOVAPAY_PUBLIC_KEY_PEM="$(cat novapay-public.pem)"\n' +
       'QE keys come from NovaPay support (acquiring@novapay.ua).',
   );

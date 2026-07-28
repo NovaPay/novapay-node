@@ -10,7 +10,7 @@
 ```bash
 ngrok http 3000            # порт зайнятий? PORT=3100 і ngrok http 3100
 export PUBLIC_URL="https://<subdomain>.ngrok-free.app"
-export NOVAPAY_PRIVATE_KEY_PEM="$(cat example/merchant-private.qe.pem)"
+export MERCHANT_PRIVATE_KEY_PEM="$(cat example/merchant-private.qe.pem)"
 export NOVAPAY_PUBLIC_KEY_PEM="$(cat example/novapay-public.qe.pem)"
 npm run example
 ```
@@ -38,7 +38,7 @@ QE-ключі (`merchant_id` — `2`) опубліковані в доці: [А�
 | Змінна | Обов'язкова | Опис |
 |--------|-------------|------|
 | `PUBLIC_URL` | **Так** | Публічний HTTPS URL застосунку (ngrok), від нього будуються `callback_url`, `success_url`, `fail_url` |
-| `NOVAPAY_PRIVATE_KEY_PEM` | **Так** | Приватний RSA-ключ мерчанта (QE), підписує вихідні запити |
+| `MERCHANT_PRIVATE_KEY_PEM` | **Так** | Приватний RSA-ключ мерчанта (QE), підписує вихідні запити |
 | `NOVAPAY_PUBLIC_KEY_PEM` | **Так** | Публічний RSA-ключ NovaPay, перевіряє підпис postback'ів |
 | `PORT` | Ні | Порт застосунку, типово `3000` |
 
