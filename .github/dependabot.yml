@@ -7,6 +7,17 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    # Skip versions younger than this, so a hijacked release has time to be
+    # yanked before it ever lands in a PR.
+    cooldown:
+      default-days: 5
+    ignore:
+      # TS 7 crashes the dts build: tsup bundles rollup-plugin-dts built against
+      # TS 5.x, which reads an internal `useCaseSensitiveFileNames` that TS 7
+      # dropped — `npm run build` emits js/cjs, then dies before any .d.ts.
+      # Drop this once tsup ships a TS 7-capable dts step.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     groups:
       dev-dependencies:
         patterns: ['*']
@@ -19,6 +30,8 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 1
+    cooldown:
+      default-days: 5
     groups:
       example:
         patterns: ['*']
@@ -29,5 +42,7 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 5
     commit-message:
       prefix: ci

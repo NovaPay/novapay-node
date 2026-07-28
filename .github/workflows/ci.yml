@@ -23,8 +23,8 @@ jobs:
         # 20.3+ is required for AbortSignal.any.
         node: [20, 22, 24]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -44,13 +44,16 @@ jobs:
       contents: read
       id-token: write # required for npm provenance
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
-      - run: npm ci
+      # No install scripts: NODE_AUTH_TOKEN is in this job's env, so a compromised
+      # devDep postinstall could exfiltrate it. tsup/esbuild resolve their platform
+      # binaries at runtime and build fine without them.
+      - run: npm ci --ignore-scripts
       - name: Tag must match package.json version
         run: |
           pkg="v$(node -p "require('./package.json').version")"
