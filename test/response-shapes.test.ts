@@ -38,15 +38,18 @@ const RECORDED = {
 
 function replay(body: string, status = 200) {
   const fetchFn = vi.fn(async () => new Response(body, { status }));
-  return createClient({ privateKeyPem: privateKey, fetchFn: fetchFn as typeof fetch });
+  return createClient({
+    merchantId: '2',
+    privateKeyPem: privateKey,
+    fetchFn: fetchFn as typeof fetch,
+  });
 }
 
-const req = { merchant_id: '2', session_id: 'sess-1' };
+const req = { session_id: 'sess-1' };
 
 describe('recorded QE responses', () => {
   it('createSession carries id and metadata', async () => {
     const s = await replay(RECORDED.createSession).acquiring.createSession({
-      merchant_id: '2',
       client_phone: '+380501112233',
     });
     expect(s.id).toBe('e7638147-3da7-46e6-ada4-017fcc09d1ce');

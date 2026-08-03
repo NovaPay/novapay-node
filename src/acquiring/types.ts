@@ -1,6 +1,3 @@
-/** Merchant identifier as returned in NovaPay docs (string or number). */
-export type MerchantId = string | number;
-
 export type JsonObject = Record<string, unknown>;
 
 export type ProductLine = {
@@ -13,7 +10,6 @@ export type ProductLine = {
  * @see https://novapay.readme.io/reference/create-session
  */
 export type CreateSessionRequest = {
-  merchant_id: MerchantId;
   client_phone: string;
   client_first_name?: string;
   client_last_name?: string;
@@ -51,19 +47,28 @@ export type SessionPaymentResponse = {
 };
 
 /**
- * Session lifecycle status. All values below were observed on QE; NovaPay can add
- * more, so any other string stays assignable.
+ * Session lifecycle status. NovaPay can add more, so any other string stays assignable.
  *
  * `created` → `holded` → `paid` → `voided` is the hold flow;
  * `created` → `paid` → `voided` is the direct-charge flow.
  */
 export type SessionStatus =
-  | 'created' // acquiring session opened, not paid
   | 'precreated' // checkout session opened, not paid
-  | 'holded' // funds authorized by `use_hold`, awaiting completeHold
-  | 'paid' // funds captured
-  | 'voided' // refunded via voidSession
+  | 'created' // acquiring session opened, not paid
+  | 'preprocessing' // customer opened the payment page
+  | 'async_preprocessing' // asynchronous payment started
+  | 'processing' // payment in flight
   | 'expired' // expireSession, or the session window elapsed
+  | 'holded' // funds authorized by `use_hold`, awaiting completeHold
+  | 'processing_hold_completion' // completeHold in flight
+  | 'hold_confirmed' // hold confirmed by the merchant
+  | 'paid' // funds captured
+  | 'to_be_paid' // cash on delivery
+  | 'failed' // payment failed
+  | 'processing_void' // voidSession in flight
+  | 'processing_refund' // refund in flight
+  | 'voided' // refunded via voidSession
+  | 'blocked' // blocked by NovaPay
   | (string & {});
 
 /** Acquirer verdict on the card transaction. Observed on QE. */
@@ -130,7 +135,6 @@ export type SessionStatusResponse = {
  * @see https://novapay.readme.io/reference/add-payment
  */
 export type AddPaymentRequest = {
-  merchant_id: MerchantId;
   session_id: string;
   amount: number;
   external_id?: string;
@@ -141,7 +145,6 @@ export type AddPaymentRequest = {
 };
 
 export type SessionIdRequest = {
-  merchant_id: MerchantId;
   session_id: string;
 };
 
@@ -155,7 +158,6 @@ export type CompleteHoldOperation = {
  * @see https://novapay.readme.io/reference/complete-hold
  */
 export type CompleteHoldRequest = {
-  merchant_id: MerchantId;
   session_id: string;
   amount?: number;
   operations?: CompleteHoldOperation[];

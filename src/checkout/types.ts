@@ -2,7 +2,6 @@ import type {
   AddPaymentRequest,
   CompleteHoldRequest,
   JsonObject,
-  MerchantId,
   SessionCreateResponse,
   SessionIdRequest,
   SessionPaymentResponse,
@@ -33,7 +32,6 @@ export type CheckoutPaymentResponse = {
  * @see https://novapay.readme.io/reference/create-checkout-session
  */
 export type CreateCheckoutSessionRequest = {
-  merchant_id: MerchantId;
   callback_url: string;
   success_url?: string;
   fail_url?: string;

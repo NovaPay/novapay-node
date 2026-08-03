@@ -2,15 +2,30 @@ import { AcquiringClient } from './acquiring/acquiring.js';
 import { CheckoutClient } from './checkout/checkout.js';
 import { getExternalApiBaseUrl, NovaPayEnvironment } from './environment.js';
 import { NovaPayConfigError, NovaPaySignatureError } from './errors.js';
-import type { AcquiringPostbackV3 } from './postbacks/types-acquiring.js';
+import type {
+  AcquiringPostbackV1,
+  AcquiringPostbackV2,
+  PostbackVersion,
+} from './postbacks/types-acquiring.js';
 import { parsePublicKey, verifyWithKey } from './sign.js';
 
-export type CreateNovaPayClientOptions = {
+/** Default `parsePostback` payload type for each {@link PostbackVersion}. */
+export type AcquiringPostbackByVersion = {
+  v1: AcquiringPostbackV1;
+  v2: AcquiringPostbackV2;
+};
+
+export type CreateNovaPayClientOptions<V extends PostbackVersion = 'v1'> = {
   /**
    * Merchant RSA private key PEM used to sign outgoing API requests.
    * Parsed once here — an invalid PEM throws from `createClient`, not from the first charge.
    */
   privateKeyPem: string;
+  /**
+   * Your NovaPay merchant id. Sent as `merchant_id` in every request body,
+   * so individual calls don't repeat it.
+   */
+  merchantId: string;
   /**
    * NovaPay RSA **public** key PEM used to verify incoming postbacks.
    * If omitted, `client.verifyPostback` will throw.
@@ -34,9 +49,15 @@ export type CreateNovaPayClientOptions = {
   fetchFn?: typeof fetch;
   /** Default per-request timeout; override per call with `RequestOptions`. @default 30_000 */
   timeoutMs?: number;
+  /**
+   * Merchant `postback_version` setting at NovaPay — decides the payload shape NovaPay sends
+   * and therefore the default type `parsePostback` returns. Typing only, no runtime effect.
+   * @default PostbackVersion.v1
+   */
+  postbackVersion?: V;
 };
 
-export type NovaPayClient = {
+export type NovaPayClient<V extends PostbackVersion = 'v1'> = {
   acquiring: AcquiringClient;
   checkout: CheckoutClient;
   /**
@@ -52,7 +73,9 @@ export type NovaPayClient = {
    * from accidentally verifying an already re-serialized body.
    *
    * `rawBody` must be the untouched request bytes (a `Buffer` from your body parser is fine).
-   * Pass {@link import('./postbacks/types-checkout.js').CheckoutPostbackV3} as the type argument
+   * The default payload type follows `postbackVersion` from {@link CreateNovaPayClientOptions};
+   * pass {@link import('./postbacks/types-checkout.js').CheckoutPostbackV1} /
+   * {@link import('./postbacks/types-checkout.js').CheckoutPostbackV2} as the type argument
    * for a checkout postback.
    *
    * @throws NovaPaySignatureError when the signature does not match the raw request body
@@ -60,10 +83,15 @@ export type NovaPayClient = {
    * @throws SyntaxError when a body that *did* pass verification is not JSON — NovaPay itself
    *                     sent something unparseable, so this is not yours to handle: let it 500.
    */
-  parsePostback: <T = AcquiringPostbackV3>(rawBody: string | Uint8Array, xSign: string) => T;
+  parsePostback: <T = AcquiringPostbackByVersion[V]>(
+    rawBody: string | Uint8Array,
+    xSign: string,
+  ) => T;
 };
 
-export function createClient(options: CreateNovaPayClientOptions): NovaPayClient {
+export function createClient<V extends PostbackVersion = 'v1'>(
+  options: CreateNovaPayClientOptions<V>,
+): NovaPayClient<V> {
   const env = options.environment ?? NovaPayEnvironment.Test;
   const resolvedBaseUrl = getExternalApiBaseUrl(env);
   const acquiringBaseUrl = options.acquiringBaseUrl ?? resolvedBaseUrl;
@@ -74,6 +102,7 @@ export function createClient(options: CreateNovaPayClientOptions): NovaPayClient
     : undefined;
   const shared = {
     privateKeyPem: options.privateKeyPem,
+    merchantId: options.merchantId,
     fetchFn: options.fetchFn,
     timeoutMs: options.timeoutMs,
   };
@@ -90,7 +119,10 @@ export function createClient(options: CreateNovaPayClientOptions): NovaPayClient
     acquiring: new AcquiringClient({ ...shared, baseUrl: acquiringBaseUrl }),
     checkout: new CheckoutClient({ ...shared, baseUrl: checkoutBaseUrl }),
     verifyPostback,
-    parsePostback: <T = AcquiringPostbackV3>(rawBody: string | Uint8Array, xSign: string): T => {
+    parsePostback: <T = AcquiringPostbackByVersion[V]>(
+      rawBody: string | Uint8Array,
+      xSign: string,
+    ): T => {
       if (!verifyPostback(rawBody, xSign)) {
         throw new NovaPaySignatureError('Postback signature does not match the raw request body.');
       }

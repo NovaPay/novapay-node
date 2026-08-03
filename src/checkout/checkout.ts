@@ -15,6 +15,8 @@ import type {
 export type CheckoutClientOptions = {
   baseUrl: string;
   privateKeyPem: string;
+  /** Sent as `merchant_id` in every request body. */
+  merchantId: string;
   fetchFn?: typeof fetch;
   timeoutMs?: number;
 };
@@ -29,11 +31,11 @@ export class CheckoutClient {
     this.#privateKey = parsePrivateKey(opts.privateKeyPem);
   }
 
-  #post(path: string, body: unknown, options?: RequestOptions): Promise<unknown> {
+  #post(path: string, body: object, options?: RequestOptions): Promise<unknown> {
     return post({
       baseUrl: this.#opts.baseUrl,
       path,
-      body,
+      body: { merchant_id: this.#opts.merchantId, ...body },
       privateKey: this.#privateKey,
       fetchFn: this.#opts.fetchFn,
       timeoutMs: options?.timeoutMs ?? this.#opts.timeoutMs,

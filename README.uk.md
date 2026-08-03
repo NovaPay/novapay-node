@@ -32,16 +32,15 @@ const client = createClient({
   privateKeyPem: process.env.MERCHANT_PRIVATE_KEY_PEM!,
   novapayPublicKeyPem: process.env.NOVAPAY_PUBLIC_KEY_PEM!,
   environment: NovaPayEnvironment.Production,
+  merchantId: '<ваш-merchant-id>',
 });
 
 const session = await client.acquiring.createSession({
-  merchant_id: '<ваш-merchant-id>',
   client_phone: '+380501112233',
   callback_url: 'https://your.api/novapay/postback',
 });
 
 const payment = await client.acquiring.addPayment({
-  merchant_id: '<ваш-merchant-id>',
   session_id: session.id,
   amount: 100.5,
 });
@@ -51,8 +50,6 @@ console.log('Редірект клієнта на:', payment.url);
 
 `createSession` повертає `{ id }` — це і є ідентифікатор сесії для всіх наступних викликів.
 
-Обидва `createSession` автоматично додають `metadata.source_name` (`novapay_node`), `metadata.version` (версія цього пакета) та `metadata.runtime` (`node/<process.versions.node>`), щоб NovaPay бачив джерело трафіку. Ваші ключі `metadata` зберігаються, ці три перемагають при збігу назв.
-
 Передайте `use_hold: true` у `addPayment`, щоб заблокувати кошти зараз і списати пізніше через `completeHold`.
 
 ### Checkout
@@ -61,13 +58,11 @@ console.log('Редірект клієнта на:', payment.url);
 
 ```ts
 const session = await client.checkout.createSession({
-  merchant_id: '<ваш-merchant-id>',
   callback_url: 'https://your.api/novapay/checkout-postback',
   client_phone: '+380501112233',
 });
 
 const payment = await client.checkout.addPayment({
-  merchant_id: '<ваш-merchant-id>',
   session_id: session.id,
   amount: 250,
 });
@@ -103,11 +98,29 @@ app.post('/novapay/postback', (req, res) => {
 ```
 
 `parsePostback` спочатку перевіряє підпис і лише потім декодує — саме в такому порядку, щоб
-перезібране тіло ніколи не виявилось тим, що ви перевіряли. Повертає `AcquiringPostbackV3`; для
-checkout-postback передайте `CheckoutPostbackV3` як тип-аргумент:
+перезібране тіло ніколи не виявилось тим, що ви перевіряли.
+
+Форма payload-а залежить від **версії постбеку** — налаштування мерчанта на боці NovaPay.
+`v1` (за замовчуванням) — окремий POST на кожен платіж з `external_id`, `amount` і `products`
+на верхньому рівні; `v2` — один POST на сесію, платежі згруповані в `payments[]`. Вкажіть
+клієнту версію вашого мерчанта — і `parsePostback` повертатиме відповідний тип:
 
 ```ts
-const postback = client.parsePostback<CheckoutPostbackV3>(rawBody, xSign);
+import { PostbackVersion } from 'novapay';
+
+const client = createClient({ privateKeyPem, merchantId, novapayPublicKeyPem, postbackVersion: PostbackVersion.v2 });
+const postback = client.parsePostback(rawBody, xSign); // AcquiringPostbackV2
+```
+
+Це впливає лише на типізацію — формат на дроті визначають налаштування NovaPay для вашого
+мерчанта, тому передана `postbackVersion` **має співпадати** з `postback_version`, налаштованою
+для вашого мерчанта на боці NovaPay (не впевнені яка — спитайте їхню підтримку). При розбіжності
+типи описуватимуть поля, які ніколи не приходять.
+
+Для checkout-postback передайте `CheckoutPostbackV1` / `CheckoutPostbackV2` як тип-аргумент:
+
+```ts
+const postback = client.parsePostback<CheckoutPostbackV2>(rawBody, xSign);
 postback.delivery?.express_waybills;
 ```
 
@@ -129,7 +142,8 @@ import { verifyPostbackSignature } from 'novapay';
 const ok = verifyPostbackSignature(rawBody, xSign, process.env.NOVAPAY_PUBLIC_KEY_PEM!);
 ```
 
-Типи payload-ів: `AcquiringPostbackV3` і `CheckoutPostbackV3` (v3, актуальні станом на 2025-10-01).
+Типи payload-ів: `AcquiringPostbackV1` / `AcquiringPostbackV2` та `CheckoutPostbackV1` /
+`CheckoutPostbackV2` — названі за версією постбеку мерчанта.
 
 ## API
 
@@ -172,7 +186,7 @@ createSession ──▶ created / precreated
 ### `SessionStatusResponse`
 
 ```ts
-const s = await client.acquiring.getStatus({ merchant_id, session_id });
+const s = await client.acquiring.getStatus({ session_id });
 
 s.status;              // 'created' | 'precreated' | 'holded' | 'paid' | 'voided' | 'expired'
 s.transaction_status;  // 'APPROVED' | 'REFUNDED' | null
@@ -199,12 +213,14 @@ s.operations;          // [{ transaction_id, external_id, amount, refunded_amoun
 ```ts
 createClient({
   privateKeyPem,          // обов'язково — приватний RSA-ключ мерчанта, підписує запити
+  merchantId,             // обов'язково — йде як merchant_id у тіло кожного запиту
   novapayPublicKeyPem,    // публічний RSA-ключ NovaPay, перевіряє postback-и
   environment,            // NovaPayEnvironment.Test (за замовчуванням) | .Production
   acquiringBaseUrl,       // перевизначає хост (staging, моки)
   checkoutBaseUrl,        // перевизначає хост (staging, моки)
   timeoutMs,              // таймаут на запит за замовчуванням, 30_000
   fetchFn,                // власний fetch — проксі, інструментація, тести
+  postbackVersion,        // PostbackVersion.v1 (за замовчуванням) | .v2 — тип payload-а parsePostback
 });
 ```
 
@@ -217,7 +233,7 @@ createClient({
 
 ```ts
 await client.acquiring.getStatus(
-  { merchant_id, session_id },
+  { session_id },
   { signal: req.signal, timeoutMs: 5_000 },
 );
 ```

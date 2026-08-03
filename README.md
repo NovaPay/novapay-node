@@ -32,16 +32,15 @@ const client = createClient({
   privateKeyPem: process.env.MERCHANT_PRIVATE_KEY_PEM!,
   novapayPublicKeyPem: process.env.NOVAPAY_PUBLIC_KEY_PEM!,
   environment: NovaPayEnvironment.Production,
+  merchantId: '<your-merchant-id>',
 });
 
 const session = await client.acquiring.createSession({
-  merchant_id: '<your-merchant-id>',
   client_phone: '+380501112233',
   callback_url: 'https://your.api/novapay/postback',
 });
 
 const payment = await client.acquiring.addPayment({
-  merchant_id: '<your-merchant-id>',
   session_id: session.id,
   amount: 100.5,
 });
@@ -51,8 +50,6 @@ console.log('Redirect the customer to:', payment.url);
 
 `createSession` returns `{ id }` — that `id` is the session id you pass everywhere else.
 
-Both `createSession` methods stamp `metadata.source_name` (`novapay_node`), `metadata.version` (this package's version) and `metadata.runtime` (`node/<process.versions.node>`) so NovaPay can attribute traffic. Your own `metadata` keys are kept, those three win on a name collision.
-
 Pass `use_hold: true` to `addPayment` to authorize now and capture later with `completeHold`.
 
 ### Checkout
@@ -61,13 +58,11 @@ Same client, same host, different paths. Checkout also collects delivery details
 
 ```ts
 const session = await client.checkout.createSession({
-  merchant_id: '<your-merchant-id>',
   callback_url: 'https://your.api/novapay/checkout-postback',
   client_phone: '+380501112233',
 });
 
 const payment = await client.checkout.addPayment({
-  merchant_id: '<your-merchant-id>',
   session_id: session.id,
   amount: 250,
 });
@@ -103,11 +98,29 @@ app.post('/novapay/postback', (req, res) => {
 ```
 
 `parsePostback` verifies the signature and then decodes — in that order, so an already re-serialized
-body can never be the thing you verified. It returns `AcquiringPostbackV3`; pass `CheckoutPostbackV3`
-as the type argument for a checkout postback:
+body can never be the thing you verified.
+
+The payload shape depends on the merchant's **postback version** — a per-merchant NovaPay setting.
+`v1` (the default) sends one POST per payment with `external_id`, `amount` and `products` on the top
+level; `v2` sends one POST per session with payments grouped under `payments[]`. Tell the client
+which one your merchant uses and `parsePostback` returns the matching type:
 
 ```ts
-const postback = client.parsePostback<CheckoutPostbackV3>(rawBody, xSign);
+import { PostbackVersion } from 'novapay';
+
+const client = createClient({ privateKeyPem, merchantId, novapayPublicKeyPem, postbackVersion: PostbackVersion.v2 });
+const postback = client.parsePostback(rawBody, xSign); // AcquiringPostbackV2
+```
+
+This affects typing only — the wire format is decided by NovaPay's settings for your merchant,
+so the `postbackVersion` you pass must match the `postback_version` configured for your merchant
+at NovaPay (ask their support if you are not sure which one is set). A mismatch means the types
+describe fields that never arrive.
+
+For a checkout postback pass `CheckoutPostbackV1` / `CheckoutPostbackV2` as the type argument:
+
+```ts
+const postback = client.parsePostback<CheckoutPostbackV2>(rawBody, xSign);
 postback.delivery?.express_waybills;
 ```
 
@@ -129,7 +142,8 @@ import { verifyPostbackSignature } from 'novapay';
 const ok = verifyPostbackSignature(rawBody, xSign, process.env.NOVAPAY_PUBLIC_KEY_PEM!);
 ```
 
-Payload types: `AcquiringPostbackV3` and `CheckoutPostbackV3` (v3, current as of 2025-10-01).
+Payload types: `AcquiringPostbackV1` / `AcquiringPostbackV2` and `CheckoutPostbackV1` /
+`CheckoutPostbackV2`, named after the merchant postback version.
 
 ## API
 
@@ -172,7 +186,7 @@ createSession ──▶ created / precreated
 ### `SessionStatusResponse`
 
 ```ts
-const s = await client.acquiring.getStatus({ merchant_id, session_id });
+const s = await client.acquiring.getStatus({ session_id });
 
 s.status;              // 'created' | 'precreated' | 'holded' | 'paid' | 'voided' | 'expired'
 s.transaction_status;  // 'APPROVED' | 'REFUNDED' | null
@@ -199,12 +213,14 @@ Request types are exported too: `CreateSessionRequest`, `AddPaymentRequest`, `Co
 ```ts
 createClient({
   privateKeyPem,          // required — merchant RSA private key, signs outgoing requests
+  merchantId,             // required — sent as merchant_id in every request body
   novapayPublicKeyPem,    // NovaPay RSA public key, verifies incoming postbacks
   environment,            // NovaPayEnvironment.Test (default) | .Production
   acquiringBaseUrl,       // override the resolved host (staging, mocks)
   checkoutBaseUrl,        // override the resolved host (staging, mocks)
   timeoutMs,              // default per-request timeout, 30_000
   fetchFn,                // custom fetch — proxies, instrumentation, tests
+  postbackVersion,        // PostbackVersion.v1 (default) | .v2 — parsePostback payload type
 });
 ```
 
@@ -217,7 +233,7 @@ Every method accepts a second `RequestOptions` argument:
 
 ```ts
 await client.acquiring.getStatus(
-  { merchant_id, session_id },
+  { session_id },
   { signal: req.signal, timeoutMs: 5_000 },
 );
 ```

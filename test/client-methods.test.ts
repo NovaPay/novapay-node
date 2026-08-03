@@ -14,11 +14,15 @@ function clientWithRecorder() {
     calls.push(String(input));
     return new Response('{}', { status: 200 });
   });
-  const client = createClient({ privateKeyPem: privateKey, fetchFn: fetchFn as typeof fetch });
+  const client = createClient({
+    merchantId: '2',
+    privateKeyPem: privateKey,
+    fetchFn: fetchFn as typeof fetch,
+  });
   return { client, calls };
 }
 
-const body = { merchant_id: '2', session_id: 'sess-1' };
+const body = { session_id: 'sess-1' };
 
 describe('acquiring void/completeHold/expire', () => {
   it('hit their documented paths', async () => {
@@ -51,12 +55,15 @@ describe('createSession SDK metadata', () => {
       sent.push(JSON.parse(String(init?.body)));
       return new Response('{}', { status: 200 });
     });
-    const client = createClient({ privateKeyPem: privateKey, fetchFn: fetchFn as typeof fetch });
+    const client = createClient({
+      merchantId: '2',
+      privateKeyPem: privateKey,
+      fetchFn: fetchFn as typeof fetch,
+    });
 
-    await client.acquiring.createSession({ merchant_id: '2', client_phone: '+380501112233' });
-    await client.checkout.createSession({ merchant_id: '2', callback_url: 'https://x/cb' });
+    await client.acquiring.createSession({ client_phone: '+380501112233' });
+    await client.checkout.createSession({ callback_url: 'https://x/cb' });
     await client.acquiring.createSession({
-      merchant_id: '2',
       client_phone: '+380501112233',
       metadata: { order_id: '42', source_name: 'my_shop' },
     });

@@ -5,7 +5,6 @@ export type {
   CompleteHoldRequest,
   CreateSessionRequest,
   JsonObject,
-  MerchantId,
   ProductLine,
   SessionCreateResponse,
   SessionIdRequest,
@@ -22,7 +21,12 @@ export type {
   CheckoutSessionRequest,
   CreateCheckoutSessionRequest,
 } from './checkout/types.js';
-export { type CreateNovaPayClientOptions, createClient, type NovaPayClient } from './client.js';
+export {
+  type AcquiringPostbackByVersion,
+  type CreateNovaPayClientOptions,
+  createClient,
+  type NovaPayClient,
+} from './client.js';
 export {
   HEADER_X_SIGN,
   PRODUCTION_BASE_URL,
@@ -43,12 +47,19 @@ export {
   type NovaPayValidationErrorBody,
 } from './errors.js';
 export { type RequestOptions, type SignedPostOptions, signedPost } from './http.js';
-export type {
-  AcquiringPostbackCardDetails,
-  AcquiringPostbackPayment,
-  AcquiringPostbackPaytype,
-  AcquiringPostbackProduct,
-  AcquiringPostbackV3,
+export {
+  type AcquiringPostbackBase,
+  type AcquiringPostbackCardDetails,
+  type AcquiringPostbackPayment,
+  type AcquiringPostbackPaytype,
+  type AcquiringPostbackProduct,
+  type AcquiringPostbackV1,
+  type AcquiringPostbackV2,
+  PostbackVersion,
 } from './postbacks/types-acquiring.js';
-export type { CheckoutPostbackDelivery, CheckoutPostbackV3 } from './postbacks/types-checkout.js';
+export type {
+  CheckoutPostbackDelivery,
+  CheckoutPostbackV1,
+  CheckoutPostbackV2,
+} from './postbacks/types-checkout.js';
 export { signRequestBody, verifyPostbackSignature } from './sign.js';

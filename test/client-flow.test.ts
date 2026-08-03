@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { createClient } from '../src/client.js';
 import {
   HEADER_X_SIGN,
@@ -17,6 +17,11 @@ import {
   NovaPaySignatureError,
   NovaPayValidationError,
 } from '../src/errors.js';
+import {
+  type AcquiringPostbackV1,
+  type AcquiringPostbackV2,
+  PostbackVersion,
+} from '../src/postbacks/types-acquiring.js';
 import { signRequestBody } from '../src/sign.js';
 import { joinBaseAndPath } from '../src/url.js';
 
@@ -97,19 +102,18 @@ describe('acquiring flow', () => {
     });
 
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       fetchFn: fetchFn as typeof fetch,
     });
 
     const session = await client.acquiring.createSession({
-      merchant_id: '2',
       client_phone: '+380501112233',
       callback_url: 'https://example.com/cb',
     });
     expect(session.id).toBe(acquiringSessionId);
 
     const payment = await client.acquiring.addPayment({
-      merchant_id: '2',
       session_id: acquiringSessionId,
       amount: 100.5,
     });
@@ -147,19 +151,18 @@ describe('checkout flow', () => {
     });
 
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       fetchFn: fetchFn as typeof fetch,
     });
 
     const session = await client.checkout.createSession({
-      merchant_id: '2',
       callback_url: 'https://example.com/cb',
       client_phone: '+380501112233',
     });
     expect(session.id).toBe(checkoutSessionId);
 
     await client.checkout.addPayment({
-      merchant_id: '2',
       session_id: checkoutSessionId,
       amount: 250,
     });
@@ -190,33 +193,30 @@ describe('full client flow (example parity)', () => {
     });
 
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       novapayPublicKeyPem,
       fetchFn: fetchFn as typeof fetch,
     });
 
     const acqSession = await client.acquiring.createSession({
-      merchant_id: '2',
       client_phone: '+380501112233',
       callback_url: 'https://example.com/cb',
     });
     expect(acqSession.id).toBe(acquiringSessionId);
 
     await client.acquiring.addPayment({
-      merchant_id: '2',
       session_id: acquiringSessionId,
       amount: 100.5,
     });
 
     const chkSession = await client.checkout.createSession({
-      merchant_id: '2',
       callback_url: 'https://example.com/cb',
       client_phone: '+380501112233',
     });
     expect(chkSession.id).toBe(checkoutSessionId);
 
     await client.checkout.addPayment({
-      merchant_id: '2',
       session_id: checkoutSessionId,
       amount: 250,
     });
@@ -231,27 +231,34 @@ describe('full client flow (example parity)', () => {
 
 describe('key validation', () => {
   it('createClient rejects a malformed private key PEM', () => {
-    expect(() => createClient({ privateKeyPem: 'not-a-pem' })).toThrow(
+    expect(() => createClient({ merchantId: '2', privateKeyPem: 'not-a-pem' })).toThrow(
       /privateKeyPem is not a valid private key PEM/,
     );
   });
 
   it('createClient rejects a malformed NovaPay public key PEM', () => {
     expect(() =>
-      createClient({ privateKeyPem: merchantPrivateKeyPem, novapayPublicKeyPem: 'not-a-pem' }),
+      createClient({
+        merchantId: '2',
+        privateKeyPem: merchantPrivateKeyPem,
+        novapayPublicKeyPem: 'not-a-pem',
+      }),
     ).toThrow(/novapayPublicKeyPem is not a valid public key PEM/);
   });
 
   it('names the literal-backslash-n footgun, the most common .env mistake', () => {
     // What a PEM looks like after being pasted into .env unquoted.
     const flattened = merchantPrivateKeyPem.replaceAll('\n', '\\n');
-    expect(() => createClient({ privateKeyPem: flattened })).toThrow(/literal \\n will not parse/);
+    expect(() => createClient({ merchantId: '2', privateKeyPem: flattened })).toThrow(
+      /literal \\n will not parse/,
+    );
   });
 });
 
 describe('verifyPostback', () => {
   it('verifies raw bytes, not just strings', () => {
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       novapayPublicKeyPem,
     });
@@ -264,6 +271,7 @@ describe('verifyPostback', () => {
 
   it('returns false when body does not match signature', () => {
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       novapayPublicKeyPem,
     });
@@ -274,6 +282,7 @@ describe('verifyPostback', () => {
 
   it('throws when novapayPublicKeyPem was not set on createClient', () => {
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
     });
     expect(() => client.verifyPostback('{}', 'abc')).toThrow(
@@ -284,6 +293,7 @@ describe('verifyPostback', () => {
 
 describe('parsePostback', () => {
   const client = createClient({
+    merchantId: '2',
     privateKeyPem: merchantPrivateKeyPem,
     novapayPublicKeyPem,
   });
@@ -312,8 +322,23 @@ describe('parsePostback', () => {
   });
 
   it('throws when novapayPublicKeyPem was not set on createClient', () => {
-    const bare = createClient({ privateKeyPem: merchantPrivateKeyPem });
+    const bare = createClient({ merchantId: '2', privateKeyPem: merchantPrivateKeyPem });
     expect(() => bare.parsePostback('{}', 'abc')).toThrow(NovaPayConfigError);
+  });
+
+  it('defaults the payload type to the postbackVersion set on createClient', () => {
+    const v2client = createClient({
+      merchantId: '2',
+      privateKeyPem: merchantPrivateKeyPem,
+      novapayPublicKeyPem,
+      postbackVersion: PostbackVersion.v2,
+    });
+    const raw = '{"id":"sess-1","payments":[{"external_id":"42","amount":"10.00"}]}';
+    const xSign = signRequestBody(raw, novapayPrivateKeyPem);
+    // The option is typing-only: default client parses a v1 body, v2 client a v2 body.
+    expectTypeOf(client.parsePostback(raw, xSign)).toEqualTypeOf<AcquiringPostbackV1>();
+    expectTypeOf(v2client.parsePostback(raw, xSign)).toEqualTypeOf<AcquiringPostbackV2>();
+    expect(v2client.parsePostback(raw, xSign).payments?.[0]?.external_id).toBe('42');
   });
 });
 
@@ -329,13 +354,13 @@ describe('NovaPayApiError', () => {
     );
 
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       fetchFn: fetchFn as typeof fetch,
     });
 
     await expect(
       client.acquiring.createSession({
-        merchant_id: '2',
         client_phone: '+380501112233',
       }),
     ).rejects.toSatisfy((e: unknown) => {
@@ -354,11 +379,12 @@ describe('error class hierarchy', () => {
   const caught = async (body: string, status: number) => {
     const fetchFn = vi.fn(async () => new Response(body, { status }));
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       fetchFn: fetchFn as typeof fetch,
     });
     return client.acquiring
-      .voidSession({ merchant_id: '2', session_id: 'x' })
+      .voidSession({ session_id: 'x' })
       .then(() => undefined)
       .catch((e: unknown) => e);
   };
@@ -458,15 +484,21 @@ describe('error class hierarchy', () => {
   });
 
   it('config mistakes are NovaPayConfigError, not bare Error', () => {
-    expect(() => createClient({ privateKeyPem: 'nope' })).toThrow(NovaPayConfigError);
+    expect(() => createClient({ merchantId: '2', privateKeyPem: 'nope' })).toThrow(
+      NovaPayConfigError,
+    );
     expect(() =>
-      createClient({ privateKeyPem: merchantPrivateKeyPem, novapayPublicKeyPem: 'nope' }),
+      createClient({
+        merchantId: '2',
+        privateKeyPem: merchantPrivateKeyPem,
+        novapayPublicKeyPem: 'nope',
+      }),
     ).toThrow(NovaPayConfigError);
-    const client = createClient({ privateKeyPem: merchantPrivateKeyPem });
+    const client = createClient({ merchantId: '2', privateKeyPem: merchantPrivateKeyPem });
     expect(() => client.verifyPostback('{}', 'abc')).toThrow(NovaPayConfigError);
     // Config errors share the base class but are not API errors.
     try {
-      createClient({ privateKeyPem: 'nope' });
+      createClient({ merchantId: '2', privateKeyPem: 'nope' });
     } catch (e) {
       expect(e).toBeInstanceOf(NovaPayError);
       expect(e).not.toBeInstanceOf(NovaPayApiError);
@@ -484,18 +516,16 @@ describe('per-call RequestOptions', () => {
       return new Response('null', { status: 200 });
     });
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       fetchFn: fetchFn as typeof fetch,
       timeoutMs: 60_000,
     });
     const ctrl = new AbortController();
 
-    await client.acquiring.getStatus(
-      { merchant_id: '2', session_id: 'x' },
-      { signal: ctrl.signal },
-    );
-    await client.checkout.getStatus({ merchant_id: '2', session_id: 'x' }, { timeoutMs: 1_000 });
-    await client.acquiring.expireSession({ merchant_id: '2', session_id: 'x' });
+    await client.acquiring.getStatus({ session_id: 'x' }, { signal: ctrl.signal });
+    await client.checkout.getStatus({ session_id: 'x' }, { timeoutMs: 1_000 });
+    await client.acquiring.expireSession({ session_id: 'x' });
 
     expect(seen).toHaveLength(3);
     for (const signal of seen) {
@@ -512,13 +542,11 @@ describe('per-call RequestOptions', () => {
         }),
     );
     const client = createClient({
+      merchantId: '2',
       privateKeyPem: merchantPrivateKeyPem,
       fetchFn: fetchFn as typeof fetch,
     });
-    const pending = client.acquiring.getStatus(
-      { merchant_id: '2', session_id: 'x' },
-      { signal: ctrl.signal },
-    );
+    const pending = client.acquiring.getStatus({ session_id: 'x' }, { signal: ctrl.signal });
     ctrl.abort();
     await expect(pending).rejects.toThrow('cancelled');
   });

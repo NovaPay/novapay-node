@@ -13,7 +13,9 @@ import {
   NovaPayApiError,
   NovaPayEnvironment,
   NovaPayProcessingError,
+  NovaPaySignatureError,
   NovaPayValidationError,
+  PostbackVersion,
   WEBHOOK_HEADER_X_SIGN,
 } from 'novapay';
 
@@ -66,6 +68,10 @@ const client = createClient({
   privateKeyPem: MERCHANT_PRIVATE_KEY_PEM,
   novapayPublicKeyPem: NOVAPAY_PUBLIC_KEY_PEM,
   environment: NovaPayEnvironment.Test,
+  merchantId: DEFAULT_MERCHANT_ID,
+  // Merchant 2 on QE is configured for postback v1 (one POST per payment,
+  // `amount`/`products` on the top level). Typing only — the shape is decided by NovaPay.
+  postbackVersion: PostbackVersion.v1,
 });
 
 /** session_id → purchase. ponytail: in-memory, wiped on restart — a demo needs no DB. */
@@ -100,10 +106,7 @@ function errorText(err) {
 /** Pulls the authoritative status — the local copy is only as fresh as the last postback. */
 async function syncStatus(purchase) {
   try {
-    const status = await client.acquiring.getStatus({
-      merchant_id: DEFAULT_MERCHANT_ID,
-      session_id: purchase.sessionId,
-    });
+    const status = await client.acquiring.getStatus({ session_id: purchase.sessionId });
     purchase.status = status.status ?? purchase.status;
   } catch (err) {
     console.error('getStatus failed:', errorText(err));
@@ -116,7 +119,6 @@ async function buy(mode) {
   const item = ITEMS[mode];
 
   const session = await client.acquiring.createSession({
-    merchant_id: DEFAULT_MERCHANT_ID,
     client_phone: DEFAULT_CLIENT_PHONE,
     callback_url: `${PUBLIC_URL}/novapay/webhook`,
     success_url: `${PUBLIC_URL}/success?order=${orderId}`,
@@ -125,7 +127,6 @@ async function buy(mode) {
   });
 
   const payment = await client.acquiring.addPayment({
-    merchant_id: DEFAULT_MERCHANT_ID,
     session_id: session.id,
     amount: item.amount,
     external_id: orderId,
@@ -172,7 +173,7 @@ app.post('/buy/:mode', async (req, res, next) => {
 app.post('/hold/:sessionId/:action', async (req, res) => {
   const purchase = purchases.get(req.params.sessionId);
   if (!purchase) return res.status(404).send('unknown session');
-  const body = { merchant_id: DEFAULT_MERCHANT_ID, session_id: purchase.sessionId };
+  const body = { session_id: purchase.sessionId };
   try {
     if (req.params.action === 'complete') {
       await client.acquiring.completeHold({ ...body, amount: purchase.amount });
@@ -207,8 +208,11 @@ app.post('/novapay/webhook', (req, res) => {
   let postback;
   try {
     postback = client.parsePostback(req.rawBody, xSign);
-  } catch {
-    return res.status(401).send('invalid postback signature');
+  } catch (err) {
+    if (err instanceof NovaPaySignatureError) {
+      return res.status(401).send('invalid postback signature');
+    }
+    throw err; // missing key or non-JSON body — a broken deployment, let it 500
   }
 
   const purchase = purchases.get(postback.id);
