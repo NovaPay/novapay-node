@@ -71,8 +71,11 @@ export type SessionStatus =
   | 'blocked' // blocked by NovaPay
   | (string & {});
 
-/** Acquirer verdict on the card transaction. Observed on QE. */
-export type TransactionStatus = 'APPROVED' | 'REFUNDED' | (string & {});
+/**
+ * Acquirer verdict on the card transaction.
+ * `APPROVED` — paid/holded, `ERROR` — failed, `REFUNDED` — voided.
+ */
+export type TransactionStatus = 'APPROVED' | 'ERROR' | 'REFUNDED' | (string & {});
 
 /** One transaction inside a session, as returned by get-status. */
 export type SessionStatusOperation = {
@@ -117,11 +120,13 @@ export type SessionStatusResponse = {
   pan: string | null;
   /** Retrieval reference number. Stayed `null` on QE even after a successful payment. */
   rrn: string | null;
+  /** Acquirer terminal code. Absent until a payment reaches a terminal. */
+  terminal_name?: string;
   /** Observed: `"card"`. Empty string (not `null`) before payment. */
   paytype: string;
   /** Acquirer approval code, e.g. `"1785182032.057"`. `null` before payment. */
   approval_code: string | null;
-  /** Observed: `"VISA"`. `null` before payment. */
+  /** `"VISA"` or `"MasterCard"` (derived from the PAN). `null` before payment. */
   card_type: string | null;
   transaction_status: TransactionStatus | null;
   /** Decimal string, e.g. `"1.00"`. */

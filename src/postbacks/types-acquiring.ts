@@ -1,4 +1,4 @@
-import type { SessionStatus } from '../acquiring/types.js';
+import type { ProductLine, SessionStatus } from '../acquiring/types.js';
 
 /**
  * Merchant postback format version — a per-merchant NovaPay setting (`postback_version`).
@@ -25,11 +25,11 @@ export type AcquiringPostbackPaytype =
   | 'wallet'
   | (string & {});
 
-export type AcquiringPostbackProduct = {
-  count?: number;
-  price?: number;
-  description?: string;
-};
+/**
+ * Echo of a `products[]` item from add-payment: `count` and `price` come back
+ * exactly as the merchant sent them — number or numeric string.
+ */
+export type AcquiringPostbackProduct = ProductLine;
 
 export type AcquiringPostbackPayment = {
   external_id?: string;
@@ -60,13 +60,14 @@ export type AcquiringPostbackBase = {
   RRN?: string;
   APPROVAL?: string | number;
   created_at?: string;
-  metadata?: Record<string, unknown>;
-  client_first_name?: string;
-  client_last_name?: string;
-  client_patronymic?: string;
-  client_phone?: string;
-  client_email?: string;
-  client_ip?: string;
+  metadata?: Record<string, unknown> | null;
+  /** Client fields are sent even when unknown — as `null`. */
+  client_first_name?: string | null;
+  client_last_name?: string | null;
+  client_patronymic?: string | null;
+  client_phone?: string | null;
+  client_email?: string | null;
+  client_ip?: string | null;
   processing_result?: string;
   card_details?: AcquiringPostbackCardDetails;
 };
