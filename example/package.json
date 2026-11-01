@@ -6,8 +6,8 @@
     "start": "node index.mjs"
   },
   "dependencies": {
-    "express": "^5.2.1",
-    "hbs": "^4.2.0",
+    "express": "^5.3.0",
+    "hbs": "^4.4.0",
     "novapay": "file:.."
   }
 }
